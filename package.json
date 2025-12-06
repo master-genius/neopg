@@ -1,11 +1,18 @@
 {
   "name": "neopg",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "orm for postgres",
   "keywords": [
+    "neopg",
+    "NeoPG",
+    "pg",
+    "neo",
+    "pgorm",
+    "psqlorm",
     "postgres",
     "orm",
-    "database"
+    "database",
+    "postgres.js"
   ],
   "homepage": "https://github.com/master-genius/neopg#readme",
   "bugs": {
