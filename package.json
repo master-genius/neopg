@@ -1,0 +1,28 @@
+{
+  "name": "neopg",
+  "version": "0.0.0",
+  "description": "orm for postgres",
+  "keywords": [
+    "postgres",
+    "orm",
+    "database"
+  ],
+  "homepage": "https://github.com/master-genius/neopg#readme",
+  "bugs": {
+    "url": "https://github.com/master-genius/neopg/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/master-genius/neopg.git"
+  },
+  "license": "ISC",
+  "author": "BraveWang",
+  "type": "commonjs",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo ok"
+  }
+}
