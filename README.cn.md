@@ -6,7 +6,7 @@
 
 **NeoPG** 是一个基于 [postgres.js](https://github.com/porsager/postgres)（Node.js 生态中最快的 PostgreSQL 客户端）构建的高性能、零依赖 ORM。
 
-它完美地融合了**链式查询构造器（Query Builder）**带来的极佳开发体验（DX）与**原生 SQL 模板字符串（Template Literals）**的极致性能。
+它完美地融合了链式查询构造器（Query Builder）带来的极佳开发体验（DX）与原生 SQL 模板字符串（Template Literals）的极致性能。
 
 ### [📃 English Document 🔗](./README.md)
 
