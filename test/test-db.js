@@ -154,12 +154,21 @@ db.add(User);
                 {
                   username: 'Neo',
                   email: '123@w.com',
+                  sex: 1,
                   level: Math.floor((Math.random() * 105))
                 },
                 {
                   username: 'PG',
                   email: '1234@w.com',
+                  sex: 2,
                   level: Math.floor((Math.random() * 100))
+                },
+
+                {
+                  username: 'NPG',
+                  email: '1235@w.com',
+                  sex: 3,
+                  level: 3
                 }
             ])
     )
@@ -178,6 +187,12 @@ db.add(User);
 
     let result = await tx.model('User').where(tx.sql`level > 10`).returning('*').update(data)
     console.log(result)
+
+    let sex = 3
+    console.log(
+      'test condition or',
+      await tx.model('User').where(tx.sql`(sex = ${sex} or level > 10)`).select(['id', 'level', 'username', 'sex']).find()
+    )
 
     console.log(
       'test avg',
