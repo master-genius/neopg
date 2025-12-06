@@ -1,0 +1,336 @@
+![](./images/neopg.png)
+
+# NeoPG
+
+### The Next Generation PostgreSQL ORM for Node.js
+
+**NeoPG** is a high-performance, zero-dependency ORM built directly on top of [postgres.js](https://github.com/porsager/postgres) — the fastest PostgreSQL client for Node.js.
+
+It bridges the gap between the developer experience (DX) of a chainable Query Builder and the raw performance of native SQL Template Literals.
+
+### [🪭 中文文档 ☯️](./README.cn.md)
+
+## 🚀 Key Features
+
+*   **Powered by [postgres.js](https://github.com/porsager/postgres)**: Inherits the incredible speed and stability of the fastest PG client.
+*   **Zero Dependencies**: The core driver is vendored and optimized internally. No heavy dependency tree.
+*   **Hybrid API**: Enjoy the ease of **Chainable/Fluent APIs** (like `.where().select()`) combined with the power of **Tagged Template Literals**.
+*   **Performance First**: Zero string concatenation logic. All queries are compiled into efficient fragments and executed natively.
+*   **Auto Schema Sync**: define your models in code, and NeoPG syncs the table structure, indices, and foreign keys automatically.
+*   **Type Smart**: Automatic type casting for aggregations (`sum`, `avg` returns numbers, not strings) and JSON handling.
+
+---
+
+## 📦 Installation
+
+```bash
+npm install neopg
+```
+
+---
+
+## 🔌 Initialization
+
+### Connect to Database
+
+```javascript
+const NeoPG = require('neopg');
+
+const config = {
+  host: 'localhost',
+  port: 5432,
+  database: 'my_db',
+  user: 'postgres',
+  password: 'password',
+  max: 10,             // Connection pool size
+  idle_timeout: 30,    // Idle connection timeout in seconds
+  debug: false,        // Enable query logging
+  schema: 'public'     // Default schema
+};
+
+const db = new NeoPG(config);
+```
+
+### Close Connection
+
+```javascript
+await db.close();
+```
+
+---
+
+## 📝 Defining a Model
+
+Create a model file (e.g., `models/User.js`). Your class should extend `NeoPG.ModelChain`.
+
+```javascript
+const { ModelChain, dataTypes } = require('neopg');
+
+class User extends ModelChain {
+  static schema = {
+    tableName: 'users',
+    modelName: 'User', // Optional, defaults to tableName
+    primaryKey: 'id',
+    
+    // Auto-sync table structure based on this definition
+    column: {
+      id: { 
+        type: dataTypes.ID, // Auto-generates Snowflake-like ID 
+      },
+      username: { 
+        type: dataTypes.STRING(100), 
+        required: true 
+      },
+      email: { 
+        type: dataTypes.STRING(255), 
+        required: true 
+      },
+      age: { 
+        type: dataTypes.INT, 
+        default: 18 
+      },
+      meta: { 
+        type: dataTypes.JSONB 
+      },
+      created_at: {
+        type: dataTypes.BIGINT,
+        timestamp: 'insert' // Auto-fill on insert
+      },
+      updated_at: {
+        type: dataTypes.BIGINT,
+        timestamp: 'update' // Auto-fill on insert & update
+      }
+    },
+
+    // Indexes
+    index: ['email', 'age'],
+    unique: ['username']
+  };
+}
+
+module.exports = User;
+```
+
+---
+
+## ⚙️ Registration & Sync
+
+Initialize NeoPG and register your models. You can also sync the table structure to the database.
+
+```javascript
+const User = require('./models/User');
+
+// 1. Register Model
+db.define(User);
+
+// 2. Sync Table Structure (DDL)
+// options: { force: true } will drop columns not defined in schema
+await db.sync({ force: false }); 
+
+console.log('Database synced!');
+```
+
+---
+
+## 🔍 Querying
+
+NeoPG provides a fluent, chainable API that feels natural to use.
+
+### Basic Find
+
+```javascript
+// Get all users
+const users = await db.model('User').find();
+
+// Select specific columns
+const users = await db.model('User')
+  .select('id, username')
+  .limit(10)
+  .find();
+
+// Get a single record
+const user = await db.model('User').where({ id: '123' }).get();
+
+// Pagination
+const page2 = await db.model('User').page(2, 20).find(); // Page 2, Size 20
+```
+
+### Chained Where
+
+```javascript
+await db.model('User')
+  // Object style (AND logic)
+  .where({ 
+    age: 18, 
+    status: 'active' 
+  })
+  // Operator style
+  .where('create_time', '>', 1600000000)
+  // SQL Fragment style (Powerful!)
+  .where('id IS NOT NULL')
+  .find();
+```
+
+### Complex Where with Template Literals
+
+This is where NeoPG shines. You can mix raw SQL fragments safely using the `sql` tag from the context.
+
+```javascript
+// db.sql is the native postgres instance
+const { sql } = db; 
+
+await db.model('User')
+  .where({ status: 'active' })
+  // Safe parameter injection via Template Literals
+  .where(sql`age > ${20} AND email LIKE ${'%@gmail.com'}`)
+  .find();
+```
+
+---
+
+## 📊 Aggregation
+
+NeoPG handles type casting automatically (e.g., converting PostgreSQL `count` string results to Javascript Numbers).
+
+```javascript
+// Count
+const total = await db.model('User').where({ age: 18 }).count();
+
+// Max / Min
+const maxAge = await db.model('User').max('age');
+
+// Sum / Avg (Returns Number, not String)
+const totalScore = await db.model('User').sum('score');
+const avgScore = await db.model('User').avg('score');
+
+// Group By
+const stats = await db.model('User')
+  .select('city, count(*) as num')
+  .group('city')
+  .find();
+```
+
+---
+
+## ✏️ Write Operations
+
+### Insert
+
+```javascript
+// Insert one
+const newUser = await db.model('User').insert({
+  username: 'neo',
+  email: 'neo@matrix.com'
+});
+// ID and Timestamps are automatically generated if configured in Schema
+
+// Insert multiple (Batch)
+await db.model('User').insert([
+  { username: 'a' }, 
+  { username: 'b' }
+]);
+```
+
+### Update
+
+```javascript
+const updated = await db.model('User')
+  .where({ id: '123' })
+  .update({
+    age: 99,
+    meta: { role: 'admin' }
+  });
+```
+
+### Delete
+
+```javascript
+await db.model('User')
+  .where('age', '<', 10)
+  .delete();
+```
+
+### Returning Data
+
+By default, write operations might not return data depending on the driver optimization. You can enforce it:
+
+```javascript
+const deletedUsers = await db.model('User')
+  .where('status', 'banned')
+  .returning('id, username') // or returning('*')
+  .delete();
+```
+
+---
+
+## ⚡ Raw SQL (Template Literals)
+
+NeoPG exposes the full power of `postgres.js`. You don't need the ModelChain for everything.
+
+> 📚 **Reference**: Full documentation for the SQL tag can be found at the [postgres.js GitHub page](https://github.com/porsager/postgres).
+
+```javascript
+// Access the native driver
+const sql = db.sql;
+
+// Execute raw SQL safely
+const users = await sql`
+  SELECT * FROM users 
+  WHERE age > ${20}
+`;
+
+// Dynamic tables/columns using helper
+const table = 'users';
+const column = 'age';
+const result = await sql`
+  SELECT ${sql(column)} 
+  FROM ${sql(table)}
+`;
+```
+
+---
+
+## 🤝 Transactions
+
+NeoPG provides a unified transaction API. It supports nested transactions (Savepoints) automatically.
+
+### Using NeoPG Context (Recommended)
+
+```javascript
+// Start a transaction scope
+const result = await db.transaction(async (tx) => {
+  // 'tx' is a TransactionScope that mimics 'db'
+  
+  // 1. Write operation
+  const user = await tx.model('User').insert({ username: 'alice' });
+  
+  // 2. Read operation within transaction
+  const count = await tx.model('User').count();
+  
+  // 3. Throwing an error will automatically ROLLBACK
+  if (count > 100) {
+    throw new Error('Limit reached'); 
+  }
+  
+  return user;
+});
+// Automatically COMMITTED here if no error
+```
+
+### Using Raw Postgres Transaction
+
+```javascript
+await db.sql.begin(async (sql) => {
+  // sql is the transaction connection
+  await sql`INSERT INTO users (name) VALUES ('bob')`;
+});
+```
+
+---
+
+## License
+
+ISC
+
+
+![](./images/neopg-programming.jpeg)
