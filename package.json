@@ -1,6 +1,6 @@
 {
   "name": "neopg",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "orm for postgres",
   "keywords": [
     "neopg",
@@ -17,6 +17,9 @@
   "homepage": "https://github.com/master-genius/neopg#readme",
   "bugs": {
     "url": "https://github.com/master-genius/neopg/issues"
+  },
+  "bin": {
+    "neopg-model": "./bin/neopg-model.js"
   },
   "repository": {
     "type": "git",
