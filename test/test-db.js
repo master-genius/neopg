@@ -213,7 +213,10 @@ db.add(User);
 
     if (n > 7) {
       console.error('\x1b[7;5m随机测试：将会让事物执行失败\x1b[0m')
-      await tx.model('User').insert({username: 'Neo'})
+      //await tx.model('User').insert({username: 'Neo'})
+      let subt = tx.model('User')
+      console.log('count', await subt.count())
+      console.log('count', await subt.count())
     }
 
     console.log('test count',
