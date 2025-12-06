@@ -1,6 +1,6 @@
 {
   "name": "neopg",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "orm for postgres",
   "keywords": [
     "postgres",
