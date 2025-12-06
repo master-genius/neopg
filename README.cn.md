@@ -64,7 +64,7 @@ await db.close();
 创建一个模型文件（例如 `models/User.js`）。您的类应当继承自 `NeoPG.ModelChain`。
 
 ```javascript
-const { ModelChain, dataTypes } = require('neopg');
+const { ModelChain, dataTypes } = require('neopg')
 
 class User extends ModelChain {
   static schema = {
@@ -106,29 +106,130 @@ class User extends ModelChain {
     index: ['email', 'age'],
     // 唯一索引定义
     unique: ['username']
-  };
+  }
 }
 
-module.exports = User;
+module.exports = User
+```
+
+## 🛠 CLI 模型生成器
+
+NeoPG 内置了一个 CLI 工具，可以快速生成带有样板代码的模型文件。
+
+### 用法
+
+通过 `npx` 直接运行（无需全局安装）：
+
+```bash
+npx neopg-model [选项] [模型名称...]
+```
+
+### 选项
+
+*   `--dir=<path>`: 指定输出目录（默认：`./model`）。
+
+### 示例
+
+**1. 基础生成**
+```bash
+npx neopg-model user
+# 创建文件: ./model/user.js
+# 类名: User
+# 表名: user
+```
+
+**2. 命名规范（连字符处理）**
+输入带连字符的名称，NeoPG 会自动将类名转换为 **大驼峰（CamelCase）**，将表名转换为 **下划线（snake_case）**。
+
+```bash
+npx neopg-model user-log
+# 创建文件: ./model/user-log.js
+# 类名: UserLog
+# 表名: user_log
+```
+
+**3. 批量生成与自定义目录**
+```bash
+npx neopg-model --dir=./src/models product order-item
+# 创建:
+#   ./src/models/product.js
+#   ./src/models/order-item.js
+```
+
+**4. ES Modules (.mjs)**
+如果在名称后加上 `.mjs` 后缀，将生成 ESM 语法（`export default`）的文件。
+```bash
+npx neopg-model config.mjs
 ```
 
 ---
 
 ## ⚙️ 注册与同步
 
-初始化 NeoPG 并注册您的模型。您还可以将表结构定义同步到数据库中。
+初始化 NeoPG 并注册您的模型。您可以使用类（Class）或配置对象（Object）来定义模型。
+
+### 注册模型
+
+NeoPG 提供了三种注册方法以应对不同场景：
+
+*   **`define(model)`**：标准注册方法。如果同名模型已存在，会抛出错误（`modelName conflict`），防止意外覆盖。
+*   **`add(model)`**：同 `define`，行为一致。
+*   **`set(model)`**：**强制覆盖/重置**。如果模型已存在，则更新其定义。适用于热重载或动态 Schema 场景。
 
 ```javascript
-const User = require('./models/User');
+const User = require('./models/User')
 
-// 1. 注册模型
-db.define(User);
+// 1. 标准注册 (安全模式)
+// 如果 'User' 已经被注册过，此处会报错
+db.define(User)
 
-// 2. 同步表结构 (DDL)
+// 2. 强制覆盖 (重置模式)
+// 即使 'User' 已存在，也会使用新的定义覆盖它
+db.set(User)
+
+// 3. 使用纯对象注册 (快速原型)
+db.define({
+  tableName: 'logs',
+  column: {
+    message: 'string',
+    level: 'int'
+  }
+})
+
+```
+
+### 同步数据库
+
+根据已注册的模型同步数据库表结构。
+
+```javascript
+// 同步表结构 (DDL)
 // options: { force: true } 开启强制模式，会删除 Schema 中未定义的字段，请谨慎使用
-await db.sync({ force: false }); 
+await db.sync({ force: false })
 
-console.log('数据库结构已同步！');
+console.log('数据库结构已同步！')
+```
+
+---
+
+### 📂 自动加载模型
+
+NeoPG 支持扫描指定目录并自动注册所有模型，无需手动逐个引入。
+
+**加载规则：**
+*   仅加载 `.js` 和 `.mjs` 后缀的文件。
+*   **忽略**以 `_` 开头的文件（可用作目录内的共享工具或基类）。
+*   **忽略**以 `!` 开头的文件（可用作临时禁用的模型）。
+
+```javascript
+const db = new NeoPG(config)
+
+// 自动加载 ./models 目录下的所有模型
+// 注意：这是一个异步方法，因为它兼容 ESM (.mjs) 的动态导入
+await db.loadModels('./models')
+
+// 加载完成后即可同步或使用
+await db.sync()
 ```
 
 ---
@@ -160,16 +261,13 @@ const page2 = await db.model('User').page(2, 20).find(); // 第 2 页，每页 2
 
 ```javascript
 await db.model('User')
-  // 对象风格 (自动处理 AND)
   .where({ 
     age: 18, 
     status: 'active' 
   })
-  // 操作符风格
   .where('create_time', '>', 1600000000)
-  // SQL 片段风格 (强大且灵活！)
   .where('id IS NOT NULL')
-  .find();
+  .find()
 ```
 
 ### 结合模板字符串的复杂查询
@@ -180,9 +278,9 @@ await db.model('User')
 // db.sql 是原生的 postgres 实例
 const { sql } = db; 
 
+// 通过模板字符串安全地注入参数
 await db.model('User')
   .where({ status: 'active' })
-  // 通过模板字符串安全地注入参数
   .where(sql`age > ${20} AND email LIKE ${'%@gmail.com'}`)
   .find();
 ```

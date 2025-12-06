@@ -54,7 +54,7 @@ const db = new NeoPG(config);
 ### Close Connection
 
 ```javascript
-await db.close();
+await db.close()
 ```
 
 ---
@@ -64,7 +64,7 @@ await db.close();
 Create a model file (e.g., `models/User.js`). Your class should extend `NeoPG.ModelChain`.
 
 ```javascript
-const { ModelChain, dataTypes } = require('neopg');
+const { ModelChain, dataTypes } = require('neopg')
 
 class User extends ModelChain {
   static schema = {
@@ -105,29 +105,130 @@ class User extends ModelChain {
     // Indexes
     index: ['email', 'age'],
     unique: ['username']
-  };
+  }
 }
 
-module.exports = User;
+module.exports = User
+```
+
+## 🛠 CLI Model Generator
+
+NeoPG includes a built-in CLI tool to quickly generate model files with boilerplate code.
+
+### Usage
+
+Run via `npx` (no global installation required):
+
+```bash
+npx neopg-model [options] [model_names...]
+```
+
+### Options
+
+*   `--dir=<path>`: Specify the output directory (default: `./model`).
+
+### Examples
+
+**1. Basic Generation**
+```bash
+npx neopg-model user
+# Creates: ./model/user.js
+# Class: User
+# Table: user
+```
+
+**2. Naming Convention (Hyphenated)**
+NeoPG automatically converts hyphenated names to **CamelCase** for the class and **snake_case** for the table.
+
+```bash
+npx neopg-model user-log
+# Creates: ./model/user-log.js
+# Class: UserLog
+# Table: user_log
+```
+
+**3. Multiple Models & Custom Directory**
+```bash
+npx neopg-model --dir=./src/models product order-item
+# Creates:
+#   ./src/models/product.js
+#   ./src/models/order-item.js
+```
+
+**4. ES Modules (.mjs)**
+If you suffix the name with `.mjs`, it generates ESM syntax (`export default`).
+```bash
+npx neopg-model config.mjs
 ```
 
 ---
 
 ## ⚙️ Registration & Sync
 
-Initialize NeoPG and register your models. You can also sync the table structure to the database.
+Initialize NeoPG and register your models. You can define models using classes or configuration objects.
+
+### Registering Models
+
+NeoPG provides three methods for registration:
+
+*   **`define(model)`**: The standard method. Throws an error if a model with the same name already exists.
+*   **`add(model)`**: Alias for `define`.
+*   **`set(model)`**: **Overwrites** the existing model if the name conflicts. Useful for hot-reloading or dynamic schema updates.
 
 ```javascript
-const User = require('./models/User');
+const User = require('./models/User')
 
-// 1. Register Model
-db.define(User);
+// 1. Standard Registration (Safe)
+// Will throw error: "[NeoPG] modelName conflict: User" if registered twice
+db.define(User)
 
-// 2. Sync Table Structure (DDL)
+// 2. Force Overwrite (Reset)
+// Updates the definition for 'User' even if it exists
+db.set(User)
+
+// 3. Register using a plain object (Quick prototype)
+db.define({
+  tableName: 'logs',
+  column: {
+    message: 'string',
+    level: 'int'
+  }
+})
+
+```
+
+### Syncing Database
+
+Sync the table structure to the database based on registered models.
+
+```javascript
+// Sync Table Structure (DDL)
 // options: { force: true } will drop columns not defined in schema
-await db.sync({ force: false }); 
+await db.sync({ force: false })
 
-console.log('Database synced!');
+console.log('Database synced!')
+```
+
+---
+
+### 📂 Auto-loading Models
+
+Instead of manually importing and defining each model, you can load all models from a directory.
+
+**Rules:**
+*   Only `.js` and `.mjs` files are loaded.
+*   Files starting with `_` are ignored (useful for utils/helpers).
+*   Files starting with `!` are ignored (useful for disabled models).
+
+```javascript
+const db = new NeoPG(config)
+
+// Load all models from the './models' directory
+// This is asynchronous because it supports .mjs dynamic imports
+await db.loadModels('./models')
+
+// Now you can sync and use them
+await db.sync()
 ```
 
 ---
@@ -159,16 +260,13 @@ const page2 = await db.model('User').page(2, 20).find(); // Page 2, Size 20
 
 ```javascript
 await db.model('User')
-  // Object style (AND logic)
   .where({ 
     age: 18, 
     status: 'active' 
   })
-  // Operator style
   .where('create_time', '>', 1600000000)
-  // SQL Fragment style (Powerful!)
   .where('id IS NOT NULL')
-  .find();
+  .find()
 ```
 
 ### Complex Where with Template Literals
@@ -221,14 +319,14 @@ const stats = await db.model('User')
 const newUser = await db.model('User').insert({
   username: 'neo',
   email: 'neo@matrix.com'
-});
+})
 // ID and Timestamps are automatically generated if configured in Schema
 
 // Insert multiple (Batch)
 await db.model('User').insert([
   { username: 'a' }, 
   { username: 'b' }
-]);
+])
 ```
 
 ### Update
@@ -305,16 +403,15 @@ const result = await db.transaction(async (tx) => {
   const user = await tx.model('User').insert({ username: 'alice' });
   
   // 2. Read operation within transaction
-  const count = await tx.model('User').count();
+  const count = await tx.model('User').count()
   
   // 3. Throwing an error will automatically ROLLBACK
   if (count > 100) {
-    throw new Error('Limit reached'); 
+    throw new Error('Limit reached')
   }
   
-  return user;
-});
-// Automatically COMMITTED here if no error
+  return user
+})
 ```
 
 ### Using Raw Postgres Transaction
@@ -323,7 +420,7 @@ const result = await db.transaction(async (tx) => {
 await db.sql.begin(async (sql) => {
   // sql is the transaction connection
   await sql`INSERT INTO users (name) VALUES ('bob')`;
-});
+})
 ```
 
 ---
