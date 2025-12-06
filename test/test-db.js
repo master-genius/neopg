@@ -66,16 +66,6 @@ const User = {
       type: dataTypes.STRING(240)
     },
 
-    //通过触摸手势或轨迹生成的密码
-    touchpass: {
-      type: dataTypes.STRING(300)
-    },
-
-    is_external: {
-      type: dataTypes.SMALLINT,
-      default: 0
-    },
-
     /**
      * @type {column}
      */
@@ -143,8 +133,7 @@ const User = {
   //唯一索引
   unique: [
     'username',
-    'email',
-    'mobile'
+    'email'
   ]
 }
 
@@ -155,23 +144,74 @@ db.add(User);
   await db.sync({force: true, debug: true})
   // 插入
 
-  await db.model('User').insert({username: 'Neo', level: Math.floor((Math.random() * 101))})
+  await db.model('User').where('1=1').delete()
+
+  try {
+    console.log(
+      await db.model('User')
+              .returning(['id', 'username', 'level', 'create_time'])
+              .insert([
+                {
+                  username: 'Neo',
+                  email: '123@w.com',
+                  level: Math.floor((Math.random() * 105))
+                },
+                {
+                  username: 'PG',
+                  email: '1234@w.com',
+                  level: Math.floor((Math.random() * 100))
+                }
+            ])
+    )
+  } catch(err) {
+    console.error('\x1b[7;5m随机测试：让level超过99，validate验证失败\x1b[0m')
+  }
 
   // 事务
   await db.transaction(async tx => {
     let data = {
-      level: Math.floor(Math.random() * 101),
-      info: `age=${Math.floor(Math.random() * 10 + 20)}`
+      level: Math.floor(Math.random() * 100),
+      info: `age=${Math.floor(Math.random() * 10 + 20)};delete from users;`
     }
 
     console.log('update', data)
-    await tx.model('User').where(tx.sql`level > 10`).update(data)
+
+    let result = await tx.model('User').where(tx.sql`level > 10`).returning('*').update(data)
+    console.log(result)
+
+    console.log(
+      'test avg',
+      await tx.model('User').avg('level')
+    )
+
+    console.log(
+      'test max',
+      await tx.model('User').max('level')
+    )
+
+    console.log(
+      'test min',
+      await tx.model('User').min('username')
+    )
+
+    let n = Math.floor(Math.random() * 10)
+
+    if (n > 7) {
+      console.error('\x1b[7;5m随机测试：将会让事物执行失败\x1b[0m')
+      await tx.model('User').insert({username: 'Neo'})
+    }
+
+    console.log('test count',
+      await tx.model('User').where('level', '<', 10).count()
+    )
 
     // 嵌套
     /* await tx.transaction(async subTx => {
        await subTx.table('logs').insert({ msg: 'log' });
     }); */
-  });
+  }).catch(err => {
+    console.error(err)
+  })
 
   db.close()
 })();
