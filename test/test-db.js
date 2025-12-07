@@ -162,6 +162,10 @@ db.add(User)
         }
       }
     }
+
+    constructor() {
+      super()
+    }
   }
 
   db.define(ShopOrder)
@@ -189,6 +193,23 @@ db.add(User)
   }
 
   db.sync({force: true, debug: true, model: 'ShopOrder'})
+
+  await db.model('ShopOrder').where('1=1').delete()
+  await db.model('ShopOrder').insert([
+    {
+      name: 'topbit',
+      order_no: Math.random().toString(16)
+    },
+
+    {
+      name: 'neopg',
+      order_no: Math.random().toString(16)
+    }
+  ])
+
+  console.log('get shoporder...\n',
+    await db.model('ShopOrder').where('1=1').find()
+  )
 
   await db.model('User').where('1=1').delete()
 
