@@ -138,11 +138,57 @@ const User = {
 }
 
 // 3. 注册
-db.add(User);
+db.add(User)
 
 ;(async () => {
   await db.sync({force: true, debug: true})
   // 插入
+
+  //测试modelName和tableName
+
+  class ShopOrder extends ModelChain {
+    static schema = {
+      column: {
+        id: {
+          type: dataTypes.ID
+        },
+
+        name: {
+          type: dataTypes.STRING(30)
+        },
+
+        order_no: {
+          type: dataTypes.STRING(40)
+        }
+      }
+    }
+  }
+
+  db.define(ShopOrder)
+
+  //未指定modelName
+  let Cart = {
+    tableName: 'cart',
+    column: {
+
+    }
+  }
+
+  db.define(Cart)
+
+  let Category = {
+    column: {}
+  }
+
+  try {
+    db.define(Category)
+  } catch (err) {
+    setTimeout(() => {
+      console.error(err.message)
+    }, 100)
+  }
+
+  db.sync({force: true, debug: true, model: 'ShopOrder'})
 
   await db.model('User').where('1=1').delete()
 
