@@ -141,6 +141,7 @@ const User = {
 db.add(User)
 
 ;(async () => {
+  await db.createSchema('test')
   await db.sync({force: true, debug: true})
   // 插入
 
