@@ -29,7 +29,9 @@ const User = {
     },
 
     mobile: {
-      type: dataTypes.STRING(16)
+      type: dataTypes.STRING(16),
+      //type: dataTypes.BIGINT,
+      force: true
     },
 
     mobile_state: {
@@ -133,7 +135,7 @@ const User = {
   //唯一索引
   unique: [
     'username',
-    'email'
+    'email', 'id'
   ]
 }
 
