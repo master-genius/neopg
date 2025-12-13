@@ -197,6 +197,8 @@ db.add(User)
 
   db.sync({force: true, debug: true, model: 'ShopOrder'})
 
+  console.log('test has', db.has('User'))
+
   await db.model('ShopOrder').where('1=1').delete()
   await db.model('ShopOrder').insert([
     {
