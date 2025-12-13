@@ -196,6 +196,8 @@ db.define({
   }
 })
 
+console.log(db.has('User'))
+
 ```
 
 ### 同步数据库
@@ -227,6 +229,10 @@ const db = new NeoPG(config)
 // 自动加载 ./models 目录下的所有模型
 // 注意：这是一个异步方法，因为它兼容 ESM (.mjs) 的动态导入
 await db.loadModels('./models')
+
+
+// 加载文件列表
+await db.loadFiles(['./models2/WxUser.js', './models2/Role.js'])
 
 // 加载完成后即可同步或使用
 await db.sync()

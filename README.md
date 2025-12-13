@@ -195,6 +195,8 @@ db.define({
   }
 })
 
+console.log(db.has('User'))
+
 ```
 
 ### Syncing Database
@@ -226,6 +228,9 @@ const db = new NeoPG(config)
 // Load all models from the './models' directory
 // This is asynchronous because it supports .mjs dynamic imports
 await db.loadModels('./models')
+
+//load files
+await db.loadFiles(['./models2/WxUser.js', './models2/Role.js'])
 
 // Now you can sync and use them
 await db.sync()
