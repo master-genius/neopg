@@ -258,12 +258,22 @@ db.add(User)
     console.log('update', data)
 
     let result = await tx.model('User').where(tx.sql`level > 10`).returning('*').update(data)
-    console.log(result)
+    console.log('test update returning *', result)
 
     let sex = 3
     console.log(
       'test condition or',
       await tx.model('User').where(tx.sql`(sex = ${sex} or level > 10)`).select(['id', 'level', 'username', 'sex']).find()
+    )
+
+    console.log(
+      'test select *',
+      await tx.model('User').select().find()
+    )
+
+    console.log(
+      'test select * count',
+      await tx.model('User').select('*').findAndCount()
     )
 
     console.log(
