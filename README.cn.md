@@ -231,6 +231,9 @@ const db = new NeoPG(config)
 await db.loadModels('./models')
 
 
+//加载ESM模块
+await db.loadModels('./esmodels', 'esm')
+
 // 加载文件列表
 await db.loadFiles(['./models2/WxUser.js', './models2/Role.js'])
 

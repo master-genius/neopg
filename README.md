@@ -229,6 +229,9 @@ const db = new NeoPG(config)
 // This is asynchronous because it supports .mjs dynamic imports
 await db.loadModels('./models')
 
+//load esm modules
+await db.loadModels('./esmodels', 'esm')
+
 //load files
 await db.loadFiles(['./models2/WxUser.js', './models2/Role.js'])
 
