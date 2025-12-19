@@ -129,13 +129,16 @@ const User = {
   index: [
     'create_time',
     'level',
-    'is_root'
+    'is_root',
+    ['level', 'is_root']
   ],
 
   //唯一索引
   unique: [
     'username',
-    'email', 'id'
+    'email', 'id',
+    ['mobile', 'email']
+
   ]
 }
 
