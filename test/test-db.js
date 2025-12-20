@@ -271,7 +271,7 @@ db.add(User)
 
     console.log(
       'test select *',
-      await tx.model('User').select().find()
+      await tx.model('User').orderby('level', 'DESC').orderby('id', 'ASC').select().find()
     )
 
     console.log(
