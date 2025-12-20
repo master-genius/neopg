@@ -263,7 +263,10 @@ const users = await db.model('User')
 const user = await db.model('User').where({ id: '123' }).get();
 
 // 分页查询
-const page2 = await db.model('User').page(2, 20).find(); // 第 2 页，每页 20 条
+const page2 = await db.model('User')
+                      .select(['id', 'username', 'level'])
+                      .page(2, 20)
+                      .find(); // 第 2 页，每页 20 条
 ```
 
 ### 链式 Where 条件
@@ -276,6 +279,7 @@ await db.model('User')
   })
   .where('create_time', '>', 1600000000)
   .where('id IS NOT NULL')
+  .select(db.sql`id, username, role`)
   .find()
 ```
 

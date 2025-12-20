@@ -261,7 +261,10 @@ const users = await db.model('User')
 const user = await db.model('User').where({ id: '123' }).get();
 
 // Pagination
-const page2 = await db.model('User').page(2, 20).find(); // Page 2, Size 20
+const page2 = await db.model('User')
+                      .select(['id', 'username', 'role'])
+                      .page(2, 20)
+                      .find(); // Page 2, Size 20
 ```
 
 ### Chained Where
@@ -274,6 +277,7 @@ await db.model('User')
   })
   .where('create_time', '>', 1600000000)
   .where('id IS NOT NULL')
+  .select(db.sql`id, username, role`)
   .find()
 ```
 
