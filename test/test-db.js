@@ -278,6 +278,11 @@ db.add(User)
       'test select * count',
       await tx.model('User').select('*').findAndCount()
     )
+    
+    console.log(
+      'test select  group',
+      await tx.model('User').group('level').select(tx.sql`level, MAX(username) as username`).findAndCount()
+    )
 
     console.log(
       'test avg',
