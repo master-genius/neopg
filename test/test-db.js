@@ -122,6 +122,14 @@ const User = {
     is_root: {
       type: dataTypes.SMALLINT,
       default: 0
+    },
+    skills: {
+      type: dataTypes.ARRAY(dataTypes.STRING(30))
+    },
+    points: {
+      type: dataTypes.POINT,
+      default: '(0,0)',
+      indexType: 'GiST'
     }
   },
 
@@ -130,7 +138,9 @@ const User = {
     'create_time',
     'level',
     'is_root',
-    ['level', 'is_root']
+    ['level', 'is_root'],
+    'skills',
+    'points'
   ],
 
   //唯一索引
