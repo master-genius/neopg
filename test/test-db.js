@@ -130,6 +130,11 @@ const User = {
       type: dataTypes.POINT,
       default: '(0,0)',
       indexType: 'GiST'
+    },
+
+    role: {
+      type: dataTypes.STRING(16),
+      default: 'user'
     }
   },
 
@@ -213,6 +218,7 @@ db.add(User)
   console.log('test has', db.has('User'))
 
   await db.model('ShopOrder').where('1=1').delete()
+
   await db.model('ShopOrder').insert([
     {
       name: 'topbit',
@@ -221,6 +227,10 @@ db.add(User)
 
     {
       name: 'neopg',
+      order_no: Math.random().toString(16)
+    },
+    {
+      name: 'hydra-thread',
       order_no: Math.random().toString(16)
     }
   ])
@@ -240,20 +250,23 @@ db.add(User)
                   username: 'Neo',
                   email: '123@w.com',
                   sex: 1,
-                  level: Math.floor((Math.random() * 105))
+                  level: Math.floor((Math.random() * 105)),
+                  role: 'user'
                 },
                 {
                   username: 'PG',
                   email: '1234@w.com',
                   sex: 2,
-                  level: Math.floor((Math.random() * 100))
+                  level: Math.floor((Math.random() * 100)),
+                  role: 'db'
                 },
 
                 {
                   username: 'NPG',
                   email: '1235@w.com',
                   sex: 3,
-                  level: 3
+                  level: 3,
+                  role: 'test'
                 }
             ])
     )
@@ -292,6 +305,16 @@ db.add(User)
     console.log(
       'test select  group',
       await tx.model('User').group('level').select(tx.sql`level, MAX(username) as username`).findAndCount()
+    )
+
+    console.log(
+      'test for any (role in ...)',
+      await tx.model('User').where({role: ['test', 'db']}).find()
+    )
+
+    console.log(
+      'test for any (empty)',
+      await tx.model('User').where({role: []}).find()
     )
 
     console.log(
