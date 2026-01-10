@@ -135,6 +135,10 @@ const User = {
     role: {
       type: dataTypes.STRING(16),
       default: 'user'
+    },
+    number: {
+      type: dataTypes.INT,
+      default: 1
     }
   },
 
@@ -285,6 +289,16 @@ db.add(User)
 
     let result = await tx.model('User').where(tx.sql`level > 10`).returning('*').update(data)
     console.log('test update returning *', result)
+
+    console.log('test for update sql fragment')
+    let upd_result = await tx.model('User')
+                        .where('1=1')
+                        .returning(['id', 'username', 'number'])
+                        .update({
+                          number: tx.sql`number + ${(Math.random() * 20) | 0}`
+                        }, false);
+    
+    console.log(upd_result.count, upd_result.columns, upd_result)
 
     let sex = 3
     console.log(
