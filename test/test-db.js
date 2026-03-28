@@ -300,15 +300,16 @@ db.add(User)
     
     console.log(upd_result.count, upd_result.columns, upd_result)
 
+    let User = tx.model('User')
     let sex = 3
     console.log(
       'test condition or',
-      await tx.model('User').where(tx.sql`(sex = ${sex} or level > 10)`).select(['id', 'level', 'username', 'sex']).find()
+      await User.self.where(tx.sql`(sex = ${sex} or level > 10)`).select(['id', 'level', 'username', 'sex']).find()
     )
 
     console.log(
       'test select *',
-      await tx.model('User').orderby('level', 'DESC').orderby('id', 'ASC').select().find()
+      await User.self.orderby('level', 'DESC').orderby('id', 'ASC').select().find()
     )
 
     console.log(
