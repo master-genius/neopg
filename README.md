@@ -27,14 +27,92 @@ It bridges the gap between the developer experience (DX) of a chainable Query Bu
 npm install neopg
 ```
 
+> Requires **Node.js >= 24**.
+
 ---
+
+## 🧩 ESM and CommonJS
+
+NeoPG 3.x is published as ESM with a CommonJS entry, so pick whichever matches your project.
+
+### ESM project (`"type": "module"`, recommended)
+
+```javascript
+// Default import gives you the NeoPG class
+import NeoPG from 'neopg'
+
+// Named imports give you the helpers and base class
+import { dataTypes, ModelChain, SchemaSync } from 'neopg'
+
+const db = new NeoPG(config)
+```
+
+Model files use `export default`:
+
+```javascript
+// models/User.js
+import { dataTypes, ModelChain } from 'neopg'
+
+export default class User extends ModelChain {
+  static schema = {
+    tableName: 'users',
+    column: { id: { type: dataTypes.UID } }
+  }
+}
+```
+
+### CommonJS project (`require`)
+
+```javascript
+// Exactly like 2.x — you get the NeoPG class itself
+const NeoPG = require('neopg')
+
+// Destructuring still works
+const { dataTypes, ModelChain } = require('neopg')
+
+const db = new NeoPG(config)
+```
+
+Model files use `module.exports`:
+
+```javascript
+// models/User.js
+const { dataTypes, ModelChain } = require('neopg')
+
+class User extends ModelChain {
+  static schema = {
+    tableName: 'users',
+    column: { id: { type: dataTypes.UID } }
+  }
+}
+
+module.exports = User
+```
+
+### Side by side
+
+| Task | ESM | CommonJS |
+| :--- | :--- | :--- |
+| Import NeoPG | `import NeoPG from 'neopg'` | `const NeoPG = require('neopg')` |
+| Import helpers | `import { dataTypes, ModelChain } from 'neopg'` | `const { dataTypes, ModelChain } = require('neopg')` |
+| Export a model | `export default User` | `module.exports = User` |
+| Load models | `await db.loadModels('./models')` | `await db.loadModels('./models')` |
+
+> `loadModels()` / `loadFiles()` detect each file's module type automatically and load
+> **ESM first** (`import()`), falling back to `require()` only when the entry cannot be
+> resolved by the ESM loader. So `.mjs` models inside a CJS project and `.cjs` models
+> inside an ESM project both work without any extra argument.
 
 ## 🔌 Initialization
 
 ### Connect to Database
 
 ```javascript
-const NeoPG = require('neopg');
+// ESM (recommended)
+import NeoPG from 'neopg'
+
+// CommonJS (still supported)
+const NeoPG = require('neopg')
 
 const config = {
   host: 'localhost',
@@ -51,6 +129,9 @@ const config = {
 const db = new NeoPG(config);
 ```
 
+> **Module format**: NeoPG 3.x is ESM-first (`"type": "module"`) and requires **Node.js >= 24**.
+> A CommonJS entry (`index.cjs`) is shipped, so `require('neopg')` keeps working unchanged.
+
 ### Close Connection
 
 ```javascript
@@ -61,7 +142,12 @@ await db.close()
 
 ## 📝 Defining a Model
 
-Create a model file (e.g., `models/User.js`). Your class should extend `NeoPG.ModelChain`.
+Create a model file (e.g., `models/User.js`). Your class should extend the `ModelChain` base class
+(also reachable as `NeoPG.ModelChain`).
+
+The example below uses CommonJS; if your project is ESM, swap the first line for
+`import { ModelChain, dataTypes } from 'neopg'` and the last line for
+`export default User` — the schema itself is identical either way.
 
 ```javascript
 const { ModelChain, dataTypes } = require('neopg')
@@ -161,6 +247,10 @@ If you suffix the name with `.mjs`, it generates ESM syntax (`export default`).
 npx neopg-model config.mjs
 ```
 
+> The generated code imports `neopg` as `import { dataTypes, ModelChain } from 'neopg'`,
+> so it works both in ESM projects and in CJS projects (where `loadModels()` / `loadFiles()`
+> resolve it through the ESM-first loader).
+
 ---
 
 ## ⚙️ Registration & Sync
@@ -176,7 +266,11 @@ NeoPG provides three methods for registration:
 *   **`set(model)`**: **Overwrites** the existing model if the name conflicts. Useful for hot-reloading or dynamic schema updates.
 
 ```javascript
+// CJS project
 const User = require('./models/User')
+
+// ESM project — same thing
+// import User from './models/User.js'
 
 // 1. Standard Registration (Safe)
 // Will throw error: "[NeoPG] modelName conflict: User" if registered twice
@@ -218,26 +312,41 @@ console.log('Database synced!')
 Instead of manually importing and defining each model, you can load all models from a directory.
 
 **Rules:**
-*   Only `.js` and `.mjs` files are loaded.
+*   Files with `.js`, `.mjs` and `.cjs` extensions are loaded.
 *   Files starting with `_` are ignored (useful for utils/helpers).
 *   Files starting with `!` are ignored (useful for disabled models).
+
+**The three `modtype` values:**
+
+| Value | Behaviour |
+| :--- | :--- |
+| `'auto'` (default) | Loads via `import()` first (handles ESM, ESM with top-level `await`, and CJS); falls back to `require()` only when the ESM loader cannot resolve the entry. |
+| `'esm'` | Forces `import()`. |
+| `'cjs'` | Forces `require()`; `.mjs` files are still treated as ESM. |
+
+> The actual module kind is decided by Node: `.mjs` is ESM, `.cjs` is CommonJS, and for
+> `.js` it depends on the `type` field of the nearest `package.json`.
 
 ```javascript
 const db = new NeoPG(config)
 
 // Load all models from the './models' directory
-// This is asynchronous because it supports .mjs dynamic imports
+// The module type of each file is detected automatically, no second argument needed
 await db.loadModels('./models')
 
-//load esm modules
+// Pass 'esm' or 'cjs' only if you want to force a specific type
 await db.loadModels('./esmodels', 'esm')
 
-//load files
+// Load a list of files (also auto-detected)
 await db.loadFiles(['./models2/WxUser.js', './models2/Role.js'])
 
 // Now you can sync and use them
 await db.sync()
 ```
+
+> **Model file rules**: a model may be CommonJS (`module.exports = User`) or ESM
+> (`export default User`). Both can live in the same directory, and ESM models with
+> top-level `await` are supported too. In `auto` mode files are loaded **as ESM first**.
 
 ---
 
@@ -434,6 +543,40 @@ await db.sql.begin(async (sql) => {
   await sql`INSERT INTO users (name) VALUES ('bob')`;
 })
 ```
+
+---
+
+## ⬆️ Upgrading from 2.x
+
+NeoPG 3.0 moves the package and every source file to native ESM and upgrades the
+vendored driver to postgres.js v4.
+
+**What changed**
+
+*   `package.json` now declares `"type": "module"`, with `"node": ">=24"`.
+*   All of `lib/`, `bin/` and the entry point use `import` / `export`.
+*   The bundled driver is postgres.js **v4** (ESM), replaced in place under `postgres/`.
+*   `infer` is passed to the driver as `true` by default, preserving 2.x parameter
+    semantics (e.g. `Buffer` → `bytea`). Pass `infer: false` to opt into v4's default.
+
+**What still works unchanged**
+
+*   `require('neopg')` — a CommonJS entry (`index.cjs`) is shipped, so existing
+    `const NeoPG = require('neopg')` and `const { dataTypes, ModelChain } = require('neopg')`
+    keep working.
+*   `db.sql` is still the native postgres instance, so `sql\`...\``, `sql.unsafe()`,
+    `sql(...)` identifiers, `db.transaction()` and `db.listen()` / `db.notify()` are unaffected.
+*   Model files may be CJS or ESM. `loadModels()` / `loadFiles()` now detect the module
+    type per file, so the second `modtype` argument is optional (defaults to `'auto'`).
+    `auto` loads **ESM first** via `import()` and only falls back to `require()` when the
+    ESM loader cannot resolve the entry. Mixing `.js` / `.mjs` / `.cjs` in one directory
+    works, including ESM with top-level `await`.
+
+**Action required**
+
+*   Your own project must run on Node.js >= 24 if it consumes NeoPG as ESM.
+*   If you generate models with `npx neopg-model`, the default output is still CJS;
+    append `.mjs` to get an ESM model.
 
 ---
 

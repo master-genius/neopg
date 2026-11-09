@@ -3,4 +3,5 @@
 /cache/
 /.qwen/
 /.claude/
+/.neopg-test-*/
 

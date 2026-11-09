@@ -1,6 +1,6 @@
-const Stream = require('stream')
+import Stream from 'stream'
 
-module.exports = largeObject;function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
+export default function largeObject(sql, oid, mode = 0x00020000 | 0x00040000) {
   return new Promise(async(resolve, reject) => {
     await sql.begin(async sql => {
       let finish
@@ -40,14 +40,15 @@ module.exports = largeObject;function largeObject(sql, oid, mode = 0x00020000 | 
       } = {}) {
         let max = end - start
         start && await lo.seek(start)
+
         return new Stream.Readable({
           highWaterMark,
           async read(size) {
-            const l = size > max ? size - max : size
-            max -= size
+            const l = Math.min(size, max)
+            max -= l
             const [{ data }] = await lo.read(l)
-            this.push(data)
-            if (data.length < size)
+            data.length && this.push(data)
+            if (data.length < l || max === 0)
               this.push(null)
           }
         })
@@ -58,6 +59,7 @@ module.exports = largeObject;function largeObject(sql, oid, mode = 0x00020000 | 
         start = 0
       } = {}) {
         start && await lo.seek(start)
+
         return new Stream.Writable({
           highWaterMark,
           write(chunk, encoding, callback) {

@@ -1,342 +1,512 @@
-const { Query } = require('./query.js')
-const { Errors } = require('./errors.js')
+import { Errors } from './errors.js'
 
-const types = module.exports.types = {
-  string: {
-    to: 25,
-    from: null,             // defaults to string
-    serialize: x => '' + x
-  },
-  number: {
-    to: 0,
-    from: [21, 23, 26, 700, 701],
-    serialize: x => '' + x,
-    parse: x => +x
-  },
-  json: {
-    to: 114,
-    from: [114, 3802],
-    serialize: x => JSON.stringify(x),
-    parse: x => JSON.parse(x)
-  },
-  boolean: {
-    to: 16,
-    from: 16,
-    serialize: x => x === true ? 't' : 'f',
-    parse: x => x === 't'
-  },
-  date: {
-    to: 1184,
-    from: [1082, 1114, 1184],
-    serialize: x => (x instanceof Date ? x : new Date(x)).toISOString(),
-    parse: x => new Date(x)
-  },
-  bytea: {
-    to: 17,
-    from: 17,
-    serialize: x => '\\x' + Buffer.from(x).toString('hex'),
-    parse: x => Buffer.from(x.slice(2), 'hex')
+const number = x => +x
+    , bool = x => x === 't'
+    , json = x => JSON.parse(x)
+    , string = x => x instanceof Date ? serializeDate(x) : Array.isArray(x) ? serializeArray(x, string) : literal(x) ? JSON.stringify(x) : '' + x
+    , literal = x => x !== null && typeof x === 'object' && (Object.getPrototypeOf(x) === Object.prototype || Object.getPrototypeOf(x) === null)
+
+const arrays = {
+  16: 1000, 17: 1001, 18: 1002, 19: 1003, 20: 1016, 21: 1005, 22: 1006, 23: 1007, 24: 1008,
+  25: 1009, 26: 1028, 27: 1010, 28: 1011, 29: 1012, 30: 1013, 114: 199, 142: 143, 600: 1017,
+  601: 1018, 602: 1019, 603: 1020, 604: 1027, 628: 629, 650: 651, 700: 1021, 701: 1022, 718: 719,
+  774: 775, 790: 791, 829: 1040, 869: 1041, 1033: 1034, 1042: 1014, 1043: 1015, 1082: 1182,
+  1083: 1183, 1114: 1115, 1184: 1185, 1186: 1187, 1266: 1270, 1560: 1561, 1562: 1563, 1700: 1231,
+  1790: 2201, 2202: 2207, 2203: 2208, 2204: 2209, 2205: 2210, 2206: 2211, 2249: 2287, 2275: 1263,
+  2950: 2951, 2970: 2949, 3220: 3221, 3614: 3643, 3615: 3645, 3734: 3735, 3769: 3770, 3802: 3807,
+  3904: 3905, 3906: 3907, 3908: 3909, 3910: 3911, 3912: 3913, 3926: 3927, 4072: 4073, 4089: 4090,
+  4096: 4097, 5038: 5039, 5069: 271
+}
+
+export const types = {
+  string: { to: 25, from: null, serialize: string },
+  number: { to: 0, from: [21, 23, 26, 700, 701], serialize: string, parse: number },
+  json: { to: 114, from: [114, 3802], serialize: x => JSON.stringify(x), parse: json },
+  boolean: { to: 16, from: [16], serialize: x => x === true ? 't' : 'f', parse: bool },
+  date: { to: 1184, from: [1082, 1114, 1184], serialize: serializeDate, parse: null },
+  bytea: { to: 17, from: [17], serialize: x => '\\x' + Buffer.from(x).toString('hex'), parse: x => Buffer.from(x.slice(2), 'hex') }
+}
+
+const dates = { 1082: parseDate, 1114: parseTimestamp, 1184: parseTimestamptz }
+
+const elementsOf = { 1000: 16, 1005: 21, 1007: 23, 1016: 20 }
+
+const readers = {
+  16: binaryArray((x, i) => x[i] === 1),
+  21: binaryArray((x, i) => (x[i] << 24 | x[i + 1] << 16) >> 16),
+  23: binaryArray((x, i) => x[i] << 24 | x[i + 1] << 16 | x[i + 2] << 8 | x[i + 3]),
+  20: binaryArray((x, i) => x.readBigInt64BE(i).toString())
+}
+
+function bytes(x, i, end) {
+  return Buffer.from(x.subarray(i, end))
+}
+
+function binaryArray(read) {
+  return function(x, i) {
+    const dims = int32(x, i)
+    if (dims === 0)
+      return []
+
+    const sizes = new Array(dims)
+    for (let d = 0; d < dims; d++)
+      sizes[d] = int32(x, i + 12 + d * 8)
+
+    let at = i + 12 + dims * 8
+    return level(0)
+
+    function level(d) {
+      const n = sizes[d]
+          , xs = new Array(n)
+
+      if (d < dims - 1) {
+        for (let k = 0; k < n; k++)
+          xs[k] = level(d + 1)
+        return xs
+      }
+
+      for (let k = 0; k < n; k++) {
+        const length = int32(x, at)
+        at += 4
+        if (length === -1) {
+          xs[k] = null
+        } else {
+          xs[k] = read(x, at)
+          at += length
+        }
+      }
+      return xs
+    }
   }
 }
 
-class NotTagged { then() { notTagged() } catch() { notTagged() } finally() { notTagged() }}
+function int32(x, i) {
+  return x[i] << 24 | x[i + 1] << 16 | x[i + 2] << 8 | x[i + 3]
+}
 
-const Identifier = module.exports.Identifier = class Identifier extends NotTagged {
-  constructor(value) {
-    super()
-    this.value = escapeIdentifier(value)
+function integer(x, i, end) {
+  const negative = x[i] === 45
+  let n = 0
+  for (negative && i++; i < end; i++)
+    n = n * 10 + x[i] - 48
+  return negative ? -n : n
+}
+
+function boolean(x, i) {
+  return x[i] === 116
+}
+
+const latin1 = typeof Buffer.prototype.latin1Slice === 'function'
+  ? (x, start, end) => x.latin1Slice(start, end)
+  : (x, start, end) => x.toString('latin1', start, end)
+
+function digits(x, i, n) {
+  let v = 0
+  for (const end = i + n; i < end; i++) {
+    const d = x[i] - 48
+    if (d < 0 || d > 9)
+      return -1
+    v = v * 10 + d
+  }
+  return v
+}
+
+function clock(x, i, end, zoned) {
+  const year = digits(x, i, 4)
+  if (year < 1000 || x[i + 4] !== 45 || x[i + 7] !== 45)
+    return NaN
+
+  const month = digits(x, i + 5, 2)
+      , day = digits(x, i + 8, 2)
+
+  if (end - i === 10)
+    return zoned || month < 1 || day < 1 ? NaN : Date.UTC(year, month - 1, day)
+
+  if (x[i + 10] !== 32 || x[i + 13] !== 58 || x[i + 16] !== 58)
+    return NaN
+
+  const hour = digits(x, i + 11, 2)
+      , minute = digits(x, i + 14, 2)
+      , second = digits(x, i + 17, 2)
+
+  let at = i + 19
+    , ms = 0
+
+  if (x[at] === 46) {
+    let scale = 100
+    for (at++; at < end && x[at] >= 48 && x[at] <= 57; at++) {
+      ms += (x[at] - 48) * scale
+      scale = scale / 10 | 0
+    }
+  }
+
+  let offset = 0
+  if (zoned) {
+    const sign = x[at]
+    if ((sign !== 43 && sign !== 45) || (end - at !== 3 && (end - at !== 6 || x[at + 3] !== 58)))
+      return NaN
+    offset = digits(x, at + 1, 2) * 60 + (end - at === 6 ? digits(x, at + 4, 2) : 0)
+    if (offset < 0 || digits(x, at + 1, 2) < 0 || (end - at === 6 && digits(x, at + 4, 2) < 0))
+      return NaN
+    sign === 45 && (offset = -offset)
+    at = end
+  }
+
+  if (at !== end || month < 1 || day < 1 || hour < 0 || minute < 0 || second < 0)
+    return NaN
+
+  return Date.UTC(year, month - 1, day, hour, minute, second, ms) - offset * 60000
+}
+
+function timestamptz(x, i, end) {
+  const t = clock(x, i, end, true)
+  return Number.isNaN(t) ? parseTimestamptz(latin1(x, i, end)) : new Date(t)
+}
+
+function utcStamp(x, i, end) {
+  const t = clock(x, i, end, false)
+  return Number.isNaN(t) ? parseDate(latin1(x, i, end)) : new Date(t)
+}
+
+const shaped = (is, serialize) => x => is(x) ? serialize(x) : string(x)
+
+const shapedTypes = {
+  ...types,
+  boolean: { ...types.boolean, serialize: shaped(x => typeof x === 'boolean', types.boolean.serialize) },
+  date: { ...types.date, serialize: shaped(x => x instanceof Date, types.date.serialize) },
+  bytea: { ...types.bytea, serialize: shaped(x => x instanceof Uint8Array, types.bytea.serialize) }
+}
+
+export function Types(options = {}) {
+  const parsers = {}
+      , serializers = {}
+      , elements = {}
+      , undefinedValue = options.transform && options.transform.undefined
+
+  Object.entries(arrays).forEach(([oid, array]) => elements[array] = [+oid, +oid === 603 ? ';' : ','])
+  register(options.infer === false ? shapedTypes : types)
+  Object.assign(parsers, dates)
+  options.infer === false && (parsers[1114] = parseDate)
+  const custom = Object.values(options.types || {})
+      , named = custom.filter(x => [x.to].concat(x.from || []).some(y => typeof y === 'string'))
+      , oids = {}
+      , own = new Set()
+
+  register(custom.filter(x => !named.includes(x)))
+  custom.forEach(x => [x.to].concat(x.from || []).forEach(oid => own.add(oid)))
+
+  const keys = options.transform && options.transform.json && options.transform.column.to
+  keys && [114, 3802].forEach(oid => own.has(oid) || (serializers[oid] = renamed(serializers[oid], keys)))
+
+  const bases = {}
+
+  return {
+    parser, decoder, known, unknown, binary, serializer, load, infer, resolve,
+    named: named.length > 0, plain: !custom.some(x => x.serialize), parsers, serializers
+  }
+
+  function binary(oid) {
+    if (own.has(oid))
+      return null
+
+    if (oid === 17)
+      return parsers[17] === types.bytea.parse ? bytes : null
+
+    const element = elementsOf[oid]
+    return element !== undefined && !own.has(element) && (element !== 20 || !(20 in parsers))
+      ? readers[element]
+      : null
+  }
+
+  function unknown(oids) {
+    for (let i = 0; i < oids.length; i++) {
+      const oid = oids[i]
+      if (oid >= 16384 && !(oid in parsers) && !(oid in serializers) && !(oid in elements) && !(oid in bases))
+        return true
+    }
+    return false
+  }
+
+  function known(oid) {
+    return oid in serializers || oid in elements
+  }
+
+  function resolve(type) {
+    return typeof type === 'string' ? oids[type] || 0 : type
+  }
+
+  function decoder(oid, parse) {
+    return parse === number && (oid === 21 || oid === 23 || oid === 26) ? integer
+      : parse === bool && oid === 16 ? boolean
+      : parse === parseTimestamptz && oid === 1184 ? timestamptz
+      : parse === parseDate && (oid === 1114 || oid === 1082) ? utcStamp
+      : null
+  }
+
+  function register(xs) {
+    Object.values(xs).forEach(x => {
+      const from = [].concat(x.from || [])
+      x.parse && from.forEach(oid => parsers[oid] = x.parse)
+      if (x.serialize) {
+        serializers[x.to] = x.serialize
+        from.forEach(oid => serializers[oid] = x.serialize)
+      }
+    })
+  }
+
+  function parser(oid) {
+    if (oid in parsers)
+      return parsers[oid]
+
+    if (oid in bases)
+      return parsers[oid] = parser(bases[oid])
+
+    if (oid in elements) {
+      const [element, delimiter] = elements[oid]
+          , parse = parser(element)
+      return parsers[oid] = x => parseArray(x, parse === identity ? null : parse, delimiter)
+    }
+
+    return identity
+  }
+
+  function serializer(oid) {
+    if (oid in serializers)
+      return serializers[oid]
+
+    if (oid in bases)
+      return serializers[oid] = serializer(bases[oid])
+
+    if (oid in elements) {
+      const [element, delimiter] = elements[oid]
+          , serialize = serializer(element)
+      return serializers[oid] = xs => Array.isArray(xs) ? serializeArray(xs, serialize, delimiter, undefinedValue) : serialize(xs)
+    }
+
+    return string
+  }
+
+  function load(run) {
+    return Promise.all([fetched(run), named.length && names(run)])
+  }
+
+  async function names(run) {
+    const wanted = [...new Set(named.flatMap(x => [x.to].concat(x.from || [])).filter(x => typeof x === 'string'))]
+        , list = wanted.map(x => '\'' + x.split('.').pop().replace(/'/g, '\'\'') + '\'').join(',')
+        , rows = await run(
+          'select t.oid::int, t.typarray::int as array, t.typdelim as delimiter, t.typname as name, n.nspname as schema, '
+          + 'pg_catalog.pg_type_is_visible(t.oid) as visible from pg_catalog.pg_type t '
+          + 'join pg_catalog.pg_namespace n on n.oid = t.typnamespace where t.typname in (' + list + ')'
+        )
+        , missing = []
+    wanted.forEach(x => {
+      const [schema, name] = x.includes('.') ? x.split('.') : [null, x]
+          , row = rows.find(r => r.name === name && (schema ? r.schema === schema : r.visible))
+      row ? (oids[x] = row.oid, row.array && !(row.array in elements) && (elements[row.array] = [row.oid, row.delimiter])) : missing.push(x)
+    })
+    if (missing.length) {
+      throw Errors.generic('TYPE_NOT_FOUND', missing.length > 1
+        ? 'The types ' + missing.join(', ') + ' do not exist'
+        : 'The type ' + missing[0] + ' does not exist')
+    }
+    register(named.map(x => ({ ...x, to: resolve(x.to), from: [].concat(x.from || []).map(resolve) })))
+    named.forEach(x => [x.to].concat(x.from || []).forEach(y => own.add(resolve(y))))
+  }
+
+  function fetched(run) {
+    return run(
+      'select oid::int, typelem::int as element, typdelim as delimiter, typbasetype::int as base, typtype as kind '
+      + 'from pg_catalog.pg_type where typtype = \'d\' or (typcategory = \'A\' and oid >= 16384)'
+    ).then(rows => rows.forEach(({ oid, element, delimiter, base, kind }) => {
+      if (oid in parsers || oid in serializers)
+        return
+      kind === 'd'
+        ? bases[oid] = base
+        : element && !(oid in elements) && (elements[oid] = [element, delimiter])
+    }))
   }
 }
 
-const Parameter = module.exports.Parameter = class Parameter extends NotTagged {
-  constructor(value, type, array) {
-    super()
+const identity = x => x
+identity.identity = true
+
+export class Parameter {
+  constructor(value, type) {
     this.value = value
     this.type = type
-    this.array = array
   }
 }
 
-const Builder = module.exports.Builder = class Builder extends NotTagged {
-  constructor(first, rest) {
-    super()
-    this.first = first
-    this.rest = rest
-  }
-
-  build(before, parameters, types, options) {
-    const keyword = builders.map(([x, fn]) => ({ fn, i: before.search(x) })).sort((a, b) => a.i - b.i).pop()
-    return keyword.i === -1
-      ? escapeIdentifiers(this.first, options)
-      : keyword.fn(this.first, this.rest, parameters, types, options)
-  }
-}
-
-module.exports.handleValue = handleValue;function handleValue(x, parameters, types, options) {
-  let value = x instanceof Parameter ? x.value : x
-  if (value === undefined) {
-    x instanceof Parameter
-      ? x.value = options.transform.undefined
-      : value = x = options.transform.undefined
-
-    if (value === undefined)
-      throw Errors.generic('UNDEFINED_VALUE', 'Undefined values are not allowed')
-  }
-
-  return '$' + (types.push(
-    x instanceof Parameter
-      ? (parameters.push(x.value), x.array
-        ? x.array[x.type || inferType(x.value)] || x.type || firstIsString(x.value)
-        : x.type
-      )
-      : (parameters.push(x), inferType(x))
-  ))
-}
-
-const defaultHandlers = typeHandlers(types)
-
-module.exports.stringify = stringify;function stringify(q, string, value, parameters, types, options) { // eslint-disable-line
-  for (let i = 1; i < q.strings.length; i++) {
-    string += (stringifyValue(string, value, parameters, types, options)) + q.strings[i]
-    value = q.args[i]
-  }
-
-  return string
-}
-
-function stringifyValue(string, value, parameters, types, o) {
-  return (
-    value instanceof Builder ? value.build(string, parameters, types, o) :
-    value instanceof Query ? fragment(value, parameters, types, o) :
-    value instanceof Identifier ? value.value :
-    value && value[0] instanceof Query ? value.reduce((acc, x) => acc + ' ' + fragment(x, parameters, types, o), '') :
-    handleValue(value, parameters, types, o)
-  )
-}
-
-function fragment(q, parameters, types, options) {
-  q.fragment = true
-  return stringify(q, q.strings[0], q.args[0], parameters, types, options)
-}
-
-function valuesBuilder(first, parameters, types, columns, options) {
-  return first.map(row =>
-    '(' + columns.map(column =>
-      stringifyValue('values', row[column], parameters, types, options)
-    ).join(',') + ')'
-  ).join(',')
-}
-
-function values(first, rest, parameters, types, options) {
-  const multi = Array.isArray(first[0])
-  const columns = rest.length ? rest.flat() : Object.keys(multi ? first[0] : first)
-  return valuesBuilder(multi ? first : [first], parameters, types, columns, options)
-}
-
-function select(first, rest, parameters, types, options) {
-  typeof first === 'string' && (first = [first].concat(rest))
-  if (Array.isArray(first))
-    return escapeIdentifiers(first, options)
-
-  let value
-  const columns = rest.length ? rest.flat() : Object.keys(first)
-  return columns.map(x => {
-    value = first[x]
-    return (
-      value instanceof Query ? fragment(value, parameters, types, options) :
-      value instanceof Identifier ? value.value :
-      handleValue(value, parameters, types, options)
-    ) + ' as ' + escapeIdentifier(options.transform.column.to ? options.transform.column.to(x) : x)
-  }).join(',')
-}
-
-const builders = Object.entries({
-  values,
-  in: (...xs) => {
-    const x = values(...xs)
-    return x === '()' ? '(null)' : x
-  },
-  select,
-  as: select,
-  returning: select,
-  '\\(': select,
-
-  update(first, rest, parameters, types, options) {
-    return (rest.length ? rest.flat() : Object.keys(first)).map(x =>
-      escapeIdentifier(options.transform.column.to ? options.transform.column.to(x) : x) +
-      '=' + stringifyValue('values', first[x], parameters, types, options)
-    )
-  },
-
-  insert(first, rest, parameters, types, options) {
-    const columns = rest.length ? rest.flat() : Object.keys(Array.isArray(first) ? first[0] : first)
-    return '(' + escapeIdentifiers(columns, options) + ')values' +
-    valuesBuilder(Array.isArray(first) ? first : [first], parameters, types, columns, options)
-  }
-}).map(([x, fn]) => ([new RegExp('((?:^|[\\s(])' + x + '(?:$|[\\s(]))(?![\\s\\S]*\\1)', 'i'), fn]))
-
-function notTagged() {
-  throw Errors.generic('NOT_TAGGED_CALL', 'Query not called as a tagged template literal')
-}
-
-const serializers = module.exports.serializers = defaultHandlers.serializers
-const parsers = module.exports.parsers = defaultHandlers.parsers
-
-const END = module.exports.END = {}
-
-function firstIsString(x) {
-  if (Array.isArray(x))
-    return firstIsString(x[0])
-  return typeof x === 'string' ? 1009 : 0
-}
-
-const mergeUserTypes = module.exports.mergeUserTypes = function(types) {
-  const user = typeHandlers(types || {})
-  return {
-    serializers: Object.assign({}, serializers, user.serializers),
-    parsers: Object.assign({}, parsers, user.parsers)
-  }
-}
-
-function typeHandlers(types) {
-  return Object.keys(types).reduce((acc, k) => {
-    types[k].from && [].concat(types[k].from).forEach(x => acc.parsers[x] = types[k].parse)
-    if (types[k].serialize) {
-      acc.serializers[types[k].to] = types[k].serialize
-      types[k].from && [].concat(types[k].from).forEach(x => acc.serializers[x] = types[k].serialize)
-    }
-    return acc
-  }, { parsers: {}, serializers: {} })
-}
-
-function escapeIdentifiers(xs, { transform: { column } }) {
-  return xs.map(x => escapeIdentifier(column.to ? column.to(x) : x)).join(',')
-}
-
-const escapeIdentifier = module.exports.escapeIdentifier = function escape(str) {
-  return '"' + str.replace(/"/g, '""').replace(/\./g, '"."') + '"'
-}
-
-const inferType = module.exports.inferType = function inferType(x) {
+export function infer(x) {
   return (
     x instanceof Parameter ? x.type :
     x instanceof Date ? 1184 :
     x instanceof Uint8Array ? 17 :
     (x === true || x === false) ? 16 :
     typeof x === 'bigint' ? 20 :
-    Array.isArray(x) ? inferType(x[0]) :
+    Array.isArray(x) ? arrays[infer(x[0])] || 0 :
     0
   )
 }
 
-const escapeBackslash = /\\/g
-const escapeQuote = /"/g
+export function parseArray(x, parse, delimiter = ',') {
+  let i = x[0] === '[' ? x.indexOf('=') + 1 : 0
+  return level()
 
-function arrayEscape(x) {
-  return x
-    .replace(escapeBackslash, '\\\\')
-    .replace(escapeQuote, '\\"')
+  function level() {
+    const xs = []
+    i++
+    while (i < x.length && x[i] !== '}') {
+      if (x[i] === '{') {
+        xs.push(level())
+      } else if (x[i] === '"') {
+        let s = ''
+        for (i++; x[i] !== '"'; i++)
+          s += x[i] === '\\' ? x[++i] : x[i]
+        i++
+        xs.push(parse ? parse(s) : s)
+      } else {
+        const start = i
+        while (x[i] !== delimiter && x[i] !== '}')
+          i++
+        const s = x.slice(start, i)
+        xs.push(s === 'NULL' ? null : parse ? parse(s) : s)
+      }
+      x[i] === delimiter && i++
+    }
+    i++
+    return xs
+  }
 }
 
-const arraySerializer = module.exports.arraySerializer = function arraySerializer(xs, serializer, options, typarray) {
-  if (Array.isArray(xs) === false)
-    return xs
-
-  if (!xs.length)
-    return '{}'
-
-  const first = xs[0]
-  // Only _box (1020) has the ';' delimiter for arrays, all other types use the ',' delimiter
-  const delimiter = typarray === 1020 ? ';' : ','
-
-  if (Array.isArray(first) && !first.type)
-    return '{' + xs.map(x => arraySerializer(x, serializer, options, typarray)).join(delimiter) + '}'
-
+export function serializeArray(xs, serialize = string, delimiter = ',', undefinedValue) {
   return '{' + xs.map(x => {
-    if (x === undefined) {
-      x = options.transform.undefined
-      if (x === undefined)
-        throw Errors.generic('UNDEFINED_VALUE', 'Undefined values are not allowed')
-    }
-
-    return x === null
-      ? 'null'
-      : '"' + arrayEscape(serializer ? serializer(x.type ? x.value : x) : '' + x) + '"'
+    const typed = x instanceof Parameter
+    typed && (x = x.value)
+    x === undefined && (x = undefinedValue)
+    if (x === undefined)
+      throw Errors.generic('UNDEFINED_VALUE', 'Undefined values are not allowed')
+    return Array.isArray(x) && !typed
+      ? serializeArray(x, serialize, delimiter, undefinedValue)
+      : x === null
+        ? 'NULL'
+        : '"' + ('' + serialize(x)).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'
   }).join(delimiter) + '}'
 }
 
-const arrayParserState = {
-  i: 0,
-  char: null,
-  str: '',
-  quoted: false,
-  last: 0
+function serializeDate(x) {
+  return x === Infinity ? 'infinity'
+    : x === -Infinity ? '-infinity'
+    : (x instanceof Date ? x : new Date(x)).toISOString()
 }
 
-const arrayParser = module.exports.arrayParser = function arrayParser(x, parser, typarray) {
-  arrayParserState.i = arrayParserState.last = 0
-  return arrayParserLoop(arrayParserState, x, parser, typarray)
+const timestamp = /^(\d{4,})-(\d\d)-(\d\d)(?: (\d\d):(\d\d):(\d\d)(?:\.(\d+))?)?(?:([+-])(\d\d)(?::(\d\d))?(?::(\d\d))?)?( BC)?$/
+
+function parts(x) {
+  const m = x.match(timestamp)
+  if (!m)
+    return null
+
+  const year = m[12] ? 1 - m[1] : +m[1]
+      , ms = m[7] ? +(m[7] + '00').slice(0, 3) : 0
+      , offset = m[8] ? (m[8] === '-' ? -1 : 1) * ((m[9] * 60 + +(m[10] || 0)) * 60 + +(m[11] || 0)) * 1000 : 0
+
+  return { year, month: m[2] - 1, day: +m[3], hour: +(m[4] || 0), minute: +(m[5] || 0), second: +(m[6] || 0), ms, offset }
 }
 
-function arrayParserLoop(s, x, parser, typarray) {
-  const xs = []
-  // Only _box (1020) has the ';' delimiter for arrays, all other types use the ',' delimiter
-  const delimiter = typarray === 1020 ? ';' : ','
-  for (; s.i < x.length; s.i++) {
-    s.char = x[s.i]
-    if (s.quoted) {
-      if (s.char === '\\') {
-        s.str += x[++s.i]
-      } else if (s.char === '"') {
-        xs.push(parser ? parser(s.str) : s.str)
-        s.str = ''
-        s.quoted = x[s.i + 1] === '"'
-        s.last = s.i + 2
-      } else {
-        s.str += s.char
-      }
-    } else if (s.char === '"') {
-      s.quoted = true
-    } else if (s.char === '{') {
-      s.last = ++s.i
-      xs.push(arrayParserLoop(s, x, parser, typarray))
-    } else if (s.char === '}') {
-      s.quoted = false
-      s.last < s.i && xs.push(parser ? parser(x.slice(s.last, s.i)) : x.slice(s.last, s.i))
-      s.last = s.i + 1
-      break
-    } else if (s.char === delimiter && s.p !== '}' && s.p !== '"') {
-      xs.push(parser ? parser(x.slice(s.last, s.i)) : x.slice(s.last, s.i))
-      s.last = s.i + 1
-    }
-    s.p = s.char
-  }
-  s.last < s.i && xs.push(parser ? parser(x.slice(s.last, s.i + 1)) : x.slice(s.last, s.i + 1))
-  return xs
+function infinite(x) {
+  return x === 'infinity' ? Infinity : x === '-infinity' ? -Infinity : null
 }
 
-const toCamel = module.exports.toCamel = x => {
+function utc(x) {
+  const date = new Date(Date.UTC(2000, x.month, x.day, x.hour, x.minute, x.second, x.ms))
+  date.setUTCFullYear(x.year)
+  return date
+}
+
+function plain(x) {
+  const n = x.length
+  return x.charCodeAt(0) !== 48 && x.charCodeAt(n - 1) !== 67 && !(x.charCodeAt(n - 3) === 58 && x.charCodeAt(n - 6) === 58)
+    && x.charCodeAt(0) !== 45 && x.charCodeAt(0) !== 105
+}
+
+function parseTimestamptz(x) {
+  if (plain(x))
+    return new Date(x)
+
+  const p = infinite(x) || parts(x)
+  if (!p)
+    return new Date(x)
+
+  if (typeof p === 'number')
+    return p
+
+  const date = utc(p)
+  date.setTime(date.getTime() - p.offset)
+  return date
+}
+
+function parseDate(x) {
+  const p = infinite(x) || parts(x)
+  return !p ? new Date(x) : typeof p === 'number' ? p : utc(p)
+}
+
+function parseTimestamp(x) {
+  const p = infinite(x) || parts(x)
+  if (!p || typeof p === 'number')
+    return p || new Date(x)
+
+  if (p.year >= 100)
+    return new Date(p.year, p.month, p.day, p.hour, p.minute, p.second, p.ms)
+
+  const date = new Date(2000, 0, 1)
+  date.setFullYear(p.year, p.month, p.day)
+  date.setHours(p.hour, p.minute, p.second, p.ms)
+  return date
+}
+
+export const toCamel = x => {
   let str = x[0]
   for (let i = 1; i < x.length; i++)
     str += x[i] === '_' ? x[++i].toUpperCase() : x[i]
   return str
 }
 
-const toPascal = module.exports.toPascal = x => {
+export const toPascal = x => {
   let str = x[0].toUpperCase()
   for (let i = 1; i < x.length; i++)
     str += x[i] === '_' ? x[++i].toUpperCase() : x[i]
   return str
 }
 
-const toKebab = module.exports.toKebab = x => x.replace(/_/g, '-')
+export const toKebab = x => x.replace(/_/g, '-')
 
-const fromCamel = module.exports.fromCamel = x => x.replace(/([A-Z])/g, '_$1').toLowerCase()
-const fromPascal = module.exports.fromPascal = x => (x.slice(0, 1) + x.slice(1).replace(/([A-Z])/g, '_$1')).toLowerCase()
-const fromKebab = module.exports.fromKebab = x => x.replace(/-/g, '_')
+export const fromCamel = x => x.replace(/([A-Z])/g, '_$1').toLowerCase()
+export const fromPascal = x => (x.slice(0, 1) + x.slice(1).replace(/([A-Z])/g, '_$1')).toLowerCase()
+export const fromKebab = x => x.replace(/-/g, '_')
+
+function renamed(serialize, fn) {
+  return x => serialize(rename(x, fn))
+}
+
+function rename(x, fn) {
+  if (Array.isArray(x))
+    return x.map(x => rename(x, fn))
+
+  if (x === null || typeof x !== 'object' || (Object.getPrototypeOf(x) !== Object.prototype && Object.getPrototypeOf(x) !== null))
+    return x
+
+  const out = {}
+  for (const k in x)
+    Object.hasOwn(x, k) && Object.defineProperty(out, fn(k), { value: rename(x[k], fn), enumerable: true, writable: true, configurable: true })
+  return out
+}
 
 function createJsonTransform(fn) {
-  return function jsonTransform(x, column) {
+  jsonTransform.keys = true
+  return jsonTransform
+
+  function jsonTransform(x, column) {
     return typeof x === 'object' && x !== null && (column.type === 114 || column.type === 3802)
       ? Array.isArray(x)
         ? x.map(x => jsonTransform(x, column))
@@ -349,19 +519,19 @@ toCamel.column = { from: toCamel }
 toCamel.value = { from: createJsonTransform(toCamel) }
 fromCamel.column = { to: fromCamel }
 
-const camel = module.exports.camel = { ...toCamel }
+export const camel = { ...toCamel }
 camel.column.to = fromCamel
 
 toPascal.column = { from: toPascal }
 toPascal.value = { from: createJsonTransform(toPascal) }
 fromPascal.column = { to: fromPascal }
 
-const pascal = module.exports.pascal = { ...toPascal }
+export const pascal = { ...toPascal }
 pascal.column.to = fromPascal
 
 toKebab.column = { from: toKebab }
 toKebab.value = { from: createJsonTransform(toKebab) }
 fromKebab.column = { to: fromKebab }
 
-const kebab = module.exports.kebab = { ...toKebab }
+export const kebab = { ...toKebab }
 kebab.column.to = fromKebab

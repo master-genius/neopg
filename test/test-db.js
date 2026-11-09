@@ -1,5 +1,5 @@
 // index.js
-const NeoPG = require('../lib/NeoPG.js')
+import NeoPG from '../lib/NeoPG.js'
 const {dataTypes, ModelChain} = NeoPG
 
 // 1. 初始化

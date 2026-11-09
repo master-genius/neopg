@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 
-'use strict';
-
-const fs = require('node:fs');
-const path = require('node:path');
-const process = require('node:process');
+import fs from 'node:fs';
+import path from 'node:path';
+import process from 'node:process';
 
 // JS 关键字列表，防止类名冲突
 const JS_KEYWORDS = new Set([
@@ -126,7 +124,7 @@ module.exports = ${info.modelName}
 
 // 生成 ESM 模板
 function generateESM(info) {
-  return `'use strict'\n\nimport { dataTypes, ModelChain } from 'neopg'
+  return `import { dataTypes, ModelChain } from 'neopg'
 
 class ${info.modelName} extends ModelChain {
   static schema = {

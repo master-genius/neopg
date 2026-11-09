@@ -27,14 +27,91 @@
 npm install neopg
 ```
 
+> 要求 **Node.js >= 24**。
+
 ---
+
+## 🧩 ESM 与 CJS 两种引用方式
+
+NeoPG 3.x 以 ESM 为主形态发布，同时提供 CJS 入口，两种方式按你的项目类型选择即可。
+
+### ESM 项目（`"type": "module"`，推荐）
+
+```javascript
+// 默认导入拿到 NeoPG 类
+import NeoPG from 'neopg'
+
+// 命名导入拿到工具与基类
+import { dataTypes, ModelChain, SchemaSync } from 'neopg'
+
+const db = new NeoPG(config)
+```
+
+模型文件用 `export default`：
+
+```javascript
+// models/User.js
+import { dataTypes, ModelChain } from 'neopg'
+
+export default class User extends ModelChain {
+  static schema = {
+    tableName: 'users',
+    column: { id: { type: dataTypes.UID } }
+  }
+}
+```
+
+### CJS 项目（`require`）
+
+```javascript
+// 与 2.x 完全一致：拿到的是 NeoPG 类本身
+const NeoPG = require('neopg')
+
+// 解构同样可用
+const { dataTypes, ModelChain } = require('neopg')
+
+const db = new NeoPG(config)
+```
+
+模型文件用 `module.exports`：
+
+```javascript
+// models/User.js
+const { dataTypes, ModelChain } = require('neopg')
+
+class User extends ModelChain {
+  static schema = {
+    tableName: 'users',
+    column: { id: { type: dataTypes.UID } }
+  }
+}
+
+module.exports = User
+```
+
+### 两者对照
+
+| 场景 | ESM | CJS |
+| :--- | :--- | :--- |
+| 引入 NeoPG | `import NeoPG from 'neopg'` | `const NeoPG = require('neopg')` |
+| 引入基类/类型 | `import { dataTypes, ModelChain } from 'neopg'` | `const { dataTypes, ModelChain } = require('neopg')` |
+| 模型导出 | `export default User` | `module.exports = User` |
+| 模型加载 | `await db.loadModels('./models')` | `await db.loadModels('./models')` |
+
+> `loadModels()` / `loadFiles()` 会自动识别每个文件的模块类型，并**优先按 ESM（`import()`）加载**；
+> 仅当 ESM 加载器无法解析该入口时才回退 `require()`。
+> 因此 CJS 项目里放 `.mjs` 模型、ESM 项目里放 `.cjs` 模型都能正常工作，无需额外参数。
 
 ## 🔌 初始化
 
 ### 连接数据库
 
 ```javascript
-const NeoPG = require('neopg');
+// ESM（推荐）
+import NeoPG from 'neopg'
+
+// CommonJS（仍然支持）
+const NeoPG = require('neopg')
 
 const config = {
   host: 'localhost',
@@ -51,6 +128,9 @@ const config = {
 const db = new NeoPG(config);
 ```
 
+> **模块形态**：NeoPG 3.x 以 ESM 为主形态（`"type": "module"`），要求 **Node.js >= 24**。
+> 同时提供了 CommonJS 入口（`index.cjs`），`require('neopg')` 的用法保持原样可用。
+
 ### 关闭连接
 
 ```javascript
@@ -61,7 +141,12 @@ await db.close();
 
 ## 📝 定义模型
 
-创建一个模型文件（例如 `models/User.js`）。您的类应当继承自 `NeoPG.ModelChain`。
+创建一个模型文件（例如 `models/User.js`）。您的类应当继承 `ModelChain` 基类
+（也可通过 `NeoPG.ModelChain` 访问）。
+
+下面的示例使用 CommonJS 写法；若你的项目是 ESM，把第一行换成
+`import { ModelChain, dataTypes } from 'neopg'`，最后一行换成
+`export default User` 即可，schema 部分完全一致。
 
 ```javascript
 const { ModelChain, dataTypes } = require('neopg')
@@ -162,6 +247,10 @@ npx neopg-model --dir=./src/models product order-item
 npx neopg-model config.mjs
 ```
 
+> 生成的代码以 `import { dataTypes, ModelChain } from 'neopg'` 引入，
+> 因此无论放在 ESM 项目还是 CJS 项目中都能用（CJS 项目由 `loadModels()` / `loadFiles()`
+> 的 ESM 优先加载器解析）。
+
 ---
 
 ## ⚙️ 注册与同步
@@ -177,7 +266,11 @@ NeoPG 提供了三种注册方法以应对不同场景：
 *   **`set(model)`**：**强制覆盖/重置**。如果模型已存在，则更新其定义。适用于热重载或动态 Schema 场景。
 
 ```javascript
+// CJS 项目
 const User = require('./models/User')
+
+// ESM 项目 —— 效果相同
+// import User from './models/User.js'
 
 // 1. 标准注册 (安全模式)
 // 如果 'User' 已经被注册过，此处会报错
@@ -219,27 +312,39 @@ console.log('数据库结构已同步！')
 NeoPG 支持扫描指定目录并自动注册所有模型，无需手动逐个引入。
 
 **加载规则：**
-*   仅加载 `.js` 和 `.mjs` 后缀的文件。
+*   加载 `.js`、`.mjs` 和 `.cjs` 后缀的文件。
 *   **忽略**以 `_` 开头的文件（可用作目录内的共享工具或基类）。
 *   **忽略**以 `!` 开头的文件（可用作临时禁用的模型）。
+
+**`modtype` 三种取值：**
+
+| 取值 | 行为 |
+| :--- | :--- |
+| `'auto'`（默认） | 优先用 `import()` 加载（ESM、含顶层 `await` 的 ESM、以及 CJS 都能处理）；仅当 ESM 加载器无法解析该入口时回退 `require()`。 |
+| `'esm'` | 强制走 `import()`。 |
+| `'cjs'` | 强制走 `require()`；`.mjs` 文件仍按 ESM 处理。 |
+
+> 模块的真正形态由 Node 判定：`.mjs` 为 ESM、`.cjs` 为 CJS，`.js` 则取决于最近的 `package.json` 中 `type` 字段。
 
 ```javascript
 const db = new NeoPG(config)
 
 // 自动加载 ./models 目录下的所有模型
-// 注意：这是一个异步方法，因为它兼容 ESM (.mjs) 的动态导入
+// 文件是 CJS 还是 ESM 会自动识别，无需传第二个参数
 await db.loadModels('./models')
 
-
-//加载ESM模块
+// 如确需强制指定模块类型，可传 'esm' 或 'cjs'
 await db.loadModels('./esmodels', 'esm')
 
-// 加载文件列表
+// 加载文件列表（同样自动识别）
 await db.loadFiles(['./models2/WxUser.js', './models2/Role.js'])
 
 // 加载完成后即可同步或使用
 await db.sync()
 ```
+
+> **模型文件规则**：既可以是 CJS（`module.exports = User`），也可以是 ESM（`export default User`），
+> 两者可混放在同一目录；含顶层 `await` 的 ESM 模型同样支持。`auto` 模式下会**优先按 ESM 加载**。
 
 ---
 
@@ -437,6 +542,36 @@ await db.sql.begin(async (sql) => {
   await sql`INSERT INTO users (name) VALUES ('bob')`;
 });
 ```
+
+---
+
+## ⬆️ 从 2.x 升级
+
+NeoPG 3.0 将整个包与全部源码迁移到原生 ESM，并把内置驱动升级到 postgres.js v4。
+
+**变化点**
+
+*   `package.json` 声明了 `"type": "module"`，要求 `"node": ">=24"`。
+*   `lib/`、`bin/` 与入口文件全部改用 `import` / `export`。
+*   内置驱动升级为 postgres.js **v4**（ESM），仍位于 `postgres/` 目录。
+*   驱动参数 `infer` 默认按 `true` 传入，保持 2.x 的取值语义（例如 `Buffer` → `bytea`）。
+    如需 v4 的默认行为，显式传 `infer: false`。
+
+**保持不变的用法**
+
+*   `require('neopg')` —— 包内提供了 CommonJS 入口（`index.cjs`），
+    `const NeoPG = require('neopg')` 与 `const { dataTypes, ModelChain } = require('neopg')` 照常可用。
+*   `db.sql` 依旧是原生 postgres 实例，因此 `sql\`...\``、`sql.unsafe()`、
+    `sql(...)` 标识符、`db.transaction()`、`db.listen()` / `db.notify()` 均不受影响。
+*   模型文件可以是 CJS 也可以是 ESM。`loadModels()` / `loadFiles()` 现在会按文件自动识别模块类型，
+    第二个 `modtype` 参数变为可选（默认 `'auto'`）。`auto` 会**优先按 ESM（`import()`）加载**，
+    仅在 ESM 加载器无法解析该入口时才回退 `require()`。同一目录下混放 `.js` / `.mjs` / `.cjs` 均可，
+    含顶层 `await` 的 ESM 模型也支持。
+
+**需要你做的事**
+
+*   以 ESM 方式使用 NeoPG 的项目，Node.js 需为 24 及以上。
+*   用 `npx neopg-model` 生成模型时，默认输出仍是 CJS；文件名加 `.mjs` 才会生成 ESM 模型。
 
 ---
 

@@ -1,6 +1,5 @@
-'use strict'
+import NeoPG from './lib/NeoPG.js'
+import { dataTypes, ModelChain, SchemaSync } from './lib/NeoPG.js'
 
-const NeoPG = require('./lib/NeoPG.js')
-
-module.exports = NeoPG
-
+export default NeoPG
+export { NeoPG, dataTypes, ModelChain, SchemaSync }

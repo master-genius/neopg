@@ -1,6 +1,6 @@
 {
   "name": "neopg",
-  "version": "2.3.2",
+  "version": "3.0.0",
   "description": "orm for postgres",
   "keywords": [
     "neopg",
@@ -27,12 +27,23 @@
   },
   "license": "ISC",
   "author": "BraveWang",
-  "type": "commonjs",
-  "main": "index.js",
+  "type": "module",
+  "main": "./index.cjs",
+  "exports": {
+    ".": {
+      "import": "./index.js",
+      "require": "./index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=24"
+  },
   "directories": {
     "lib": "lib"
   },
   "scripts": {
-    "test": "echo ok"
+    "test": "node test/suite.mjs",
+    "test:integration": "node test/test-db.js"
   }
 }

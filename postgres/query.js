@@ -1,10 +1,16 @@
-const originCache = new Map()
-    , originStackCache = new Map()
-    , originError = Symbol('OriginError')
+import util from 'util'
+import { build, isQuery, Join, joinStrings } from './build.js'
+import { ours, Errors, queryError } from './errors.js'
+import { channels, active, start, finish, now, userName } from './diagnostics.js'
+import { statement } from './result.js'
 
-const CLOSE = module.exports.CLOSE = {}
-const Query = module.exports.Query = class Query extends Promise {
-  constructor(strings, args, handler, canceller, options = {}) {
+const origins = new WeakMap()
+    , noop = () => {}
+
+export const CLOSE = {}
+
+export class Query extends Promise {
+  constructor(strings, args, handler, options = {}) {
     let resolve
       , reject
 
@@ -13,44 +19,112 @@ const Query = module.exports.Query = class Query extends Promise {
       reject = b
     })
 
+    this.fulfil = resolve
+    this.fail = reject
+
+    this[isQuery] = true
     this.tagged = Array.isArray(strings.raw)
     this.strings = strings
     this.args = args
     this.handler = handler
-    this.canceller = canceller
     this.options = options
 
     this.state = null
-    this.statement = null
-
-    this.resolve = x => (this.active = false, resolve(x))
-    this.reject = x => (this.active = false, reject(x))
-
+    this.source = null
     this.active = false
-    this.cancelled = null
     this.executed = false
-    this.signature = ''
+    this.settled = false
+    this.built = null
+    this.trace = null
+    this.aborts = null
+    this.timer = null
+    this.timedOut = false
 
-    this[originError] = this.handler.debug
-      ? new Error()
-      : this.tagged && cachedError(this.strings)
-  }
-
-  get origin() {
-    return (this.handler.debug
-      ? this[originError].stack
-      : this.tagged && originStackCache.has(this.strings)
-        ? originStackCache.get(this.strings)
-        : originStackCache.set(this.strings, this[originError].stack).get(this.strings)
-    ) || ''
+    this.originError = handler.debug ? new Error() : null
+    this.tagged && !handler.debug && !origins.has(strings) && origins.set(strings, located())
   }
 
   static get [Symbol.species]() {
     return Promise
   }
 
+  join(items) {
+    const kept = [...items].filter(x => x !== false && x !== null && x !== undefined)
+        , joined = new Query(joinStrings, [new Join(this, kept)], this.handler)
+
+    Object.defineProperty(joined, 'length', { value: kept.length })
+    return joined
+  }
+
+  resolve(x) {
+    this.timer && untime(this)
+    this.aborts && this.aborts()
+    this.active = false
+    this.settled = true
+    this.trace && traced(this, null, x)
+    this.fulfil(x)
+  }
+
+  reject(x) {
+    this.timer && untime(this)
+    this.timedOut && x && timedOut(x) && (x = late(this, x))
+    this.aborts && this.aborts()
+    this.active = false
+    this.settled = true
+    this.trace && traced(this, x)
+    this.fail(x)
+  }
+
+  get origin() {
+    return this.originError
+      ? this.originError.stack
+      : this.tagged && origins.get(this.strings) || ''
+  }
+
+  get statement() {
+    return this.source && statement(this.source)
+  }
+
+  build() {
+    return this.built || (this.built = build(this, this.handler.options))
+  }
+
+  get text() {
+    return this.build().text
+  }
+
+  get parameters() {
+    return this.build().values
+  }
+
+  [util.inspect.custom](depth, options, inspect) {
+    if (!this.handler.debug)
+      return 'Query {}'
+
+    let x
+    try {
+      x = this.build()
+    } catch (error) {
+      return 'Query { ' + error.message + ' }'
+    }
+    return 'Query ' + inspect({ text: x.text, parameters: x.values }, options)
+  }
+
   cancel() {
-    return this.canceller && (this.canceller(this), this.canceller = null)
+    return this.handler.cancel ? this.handler.cancel(this) : Promise.resolve()
+  }
+
+  signal(signal) {
+    if (!signal || this.settled)
+      return this
+
+    if (signal.aborted)
+      return (this.cancel().catch(noop), this)
+
+    const abort = () => this.cancel().catch(noop)
+    signal.addEventListener('abort', abort, { once: true })
+    this.aborts = () => (this.aborts = null, signal.removeEventListener('abort', abort))
+    return this
   }
 
   simple() {
@@ -96,8 +170,8 @@ const Query = module.exports.Query = class Query extends Promise {
               resolve({ value, done: false })
               return new Promise(r => prev = r)
             }
-            this.resolve = () => (this.active = false, resolve({ done: true }))
-            this.reject = x => (this.active = false, reject(x))
+            this.resolve = x => (this.active = false, this.settled = true, this.trace && traced(this, null, x), resolve({ done: true }))
+            this.reject = x => (this.active = false, this.settled = true, this.trace && traced(this, x), reject(x))
           })
           this.execute()
           return promise
@@ -136,8 +210,23 @@ const Query = module.exports.Query = class Query extends Promise {
     return this
   }
 
-  async handle() {
-    !this.executed && (this.executed = true) && await 1 && this.handler(this)
+  parsers(parsers) {
+    this.ownParsers = parsers || null
+    return this
+  }
+
+  handle() {
+    if (this.executed)
+      return
+
+    this.executed = true
+    queueMicrotask(() => this.run())
+  }
+
+  run() {
+    active(channels.query)
+      ? start(channels.query, this.trace = context(this), () => this.handler(this))
+      : this.handler(this)
   }
 
   execute() {
@@ -145,29 +234,91 @@ const Query = module.exports.Query = class Query extends Promise {
     return this
   }
 
-  then() {
+  then(fulfilled, rejected) {
     this.handle()
-    return super.then.apply(this, arguments)
+    return super.then(fulfilled, rejected)
   }
 
-  catch() {
+  catch(rejected) {
     this.handle()
-    return super.catch.apply(this, arguments)
+    return super.catch(rejected)
   }
 
-  finally() {
+  finally(fn) {
     this.handle()
-    return super.finally.apply(this, arguments)
+    return super.finally(fn)
   }
 }
 
-function cachedError(xs) {
-  if (originCache.has(xs))
-    return originCache.get(xs)
+function untime(q) {
+  q.handler.options.timers.clearTimeout(q.timer)
+  q.timer = null
+}
 
-  const x = Error.stackTraceLimit
-  Error.stackTraceLimit = 4
-  originCache.set(xs, new Error())
-  Error.stackTraceLimit = x
-  return originCache.get(xs)
+function timedOut(x) {
+  return x.code === '57014' || (x.code === 'CONNECTION_DESTROYED' && !!x.cause && x.cause.code === 'CANCEL_UNANSWERED')
+}
+
+function late(q, error) {
+  const x = Errors.generic('QUERY_TIMEOUT', 'The query did not finish within query_timeout (' + q.handler.options.query_timeout + ' seconds)')
+  x.cause = error.code === 'CONNECTION_DESTROYED' ? error.cause : error
+  return queryError(x, q, q.handler.debug)
+}
+
+function context(q) {
+  const options = q.handler.options || {}
+  let text = null
+  if (q.strings.length) {
+    try {
+      text = q.text
+    } catch (error) {
+      text = null
+    }
+  }
+  return {
+    query: text,
+    parameters: undefined,
+    database: options.database,
+    user: userName(options),
+    host: null,
+    port: null,
+    connection: null,
+    statement: null,
+    command: null,
+    count: null,
+    queued: now(),
+    sent: null,
+    firstByte: null,
+    complete: null
+  }
+}
+
+function traced(q, error, result) {
+  const x = q.trace
+  q.trace = null
+  x.complete = now()
+  if (result && typeof result === 'object' && 'command' in result) {
+    x.command = result.command
+    x.count = result.count
+  }
+  finish(channels.query, x, error, result)
+}
+
+function located() {
+  const limit = Error.stackTraceLimit
+  Error.stackTraceLimit = 8
+  try {
+    return trim(String(new Error().stack))
+  } catch (error) {
+    return ''
+  } finally {
+    Error.stackTraceLimit = limit
+  }
+}
+
+function trim(stack) {
+  const lines = stack.split('\n')
+      , i = lines.findIndex((x, i) => i > 0 && !ours(x))
+
+  return i === -1 ? stack : lines.slice(0, i + 1).join('\n')
 }
