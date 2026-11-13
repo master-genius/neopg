@@ -141,41 +141,43 @@ await db.close();
 
 ## 📝 定义模型
 
-创建一个模型文件（例如 `models/User.js`）。您的类应当继承 `ModelChain` 基类
-（也可通过 `NeoPG.ModelChain` 访问）。
+创建一个模型文件（例如 `models/User.js`）。您的类必须继承 `ModelChain` 基类
+（也可通过 `NeoPG.ModelChain` 访问），并作为该文件的**默认导出**。
 
-下面的示例使用 CommonJS 写法；若你的项目是 ESM，把第一行换成
-`import { ModelChain, dataTypes } from 'neopg'`，最后一行换成
-`export default User` 即可，schema 部分完全一致。
+两种模块形态下 schema 的定义完全相同，区别只在首尾的 import/export 语句。
+
+### ESM 项目（`"type": "module"`，推荐）
 
 ```javascript
-const { ModelChain, dataTypes } = require('neopg')
+// models/User.js
+import { dataTypes, ModelChain } from 'neopg'
 
-class User extends ModelChain {
+export default class User extends ModelChain {
   static schema = {
     tableName: 'users',
     modelName: 'User', // 可选，默认为 tableName
     primaryKey: 'id',
-    
+
     // 基于此定义自动同步表结构
     column: {
-      id: { 
+      id: {
         type: dataTypes.ID, // 自动生成类似雪花算法的高性能 ID
       },
-      username: { 
-        type: dataTypes.STRING(100), 
-        required: true 
+      username: {
+        type: dataTypes.STRING(100),
+        validate: v => typeof v === 'string' && v.length >= 3
       },
-      email: { 
-        type: dataTypes.STRING(255), 
-        required: true 
+      email: {
+        type: dataTypes.STRING(255),
+        validate: /^[^@\s]+@[^@\s]+\.[^@\s]+$/
       },
-      age: { 
-        type: dataTypes.INT, 
-        default: 18 
+      age: {
+        type: dataTypes.INT,
+        default: 18
       },
-      meta: { 
-        type: dataTypes.JSONB 
+      meta: {
+        type: dataTypes.JSONB,
+        notNull: false // 列默认是 NOT NULL
       },
       created_at: {
         type: dataTypes.BIGINT,
@@ -193,9 +195,46 @@ class User extends ModelChain {
     unique: ['username']
   }
 }
+```
+
+### CJS 项目（`require`）
+
+```javascript
+// models/User.js
+const { dataTypes, ModelChain } = require('neopg')
+
+class User extends ModelChain {
+  static schema = {
+    tableName: 'users',
+    modelName: 'User',
+    primaryKey: 'id',
+    column: {
+      id: { type: dataTypes.ID },
+      username: { type: dataTypes.STRING(100) }
+      // ... 其余 schema 与上面完全一致 ...
+    }
+  }
+}
 
 module.exports = User
 ```
+
+### 字段说明
+
+*   **必须默认导出。** 模型必须是模块的默认导出（`export default User` 或
+    `module.exports = User`）。只有命名导出的文件会被拒绝，报 `no model export found`。
+*   **类或纯对象。** 常规写法是继承 `ModelChain` 的类；形状相同的纯对象也可以直接传给 `db.define()`。
+*   **`validate`** 接受 **RegExp**、**数组**（允许值白名单）或 **函数**，在写入时对行中实际存在的键逐个执行：
+    *   显式传入 `undefined` → `Field 'x' is required.`
+    *   校验不通过（含 `null`）→ `Validation failed for field 'x'`。
+    *   **完全没传该字段则不会被 `validate` 校验**，这种情况依赖下面的 NOT NULL 约束兜底。
+    *   注意正则对 `null` 无效：`/^[a-z]+$/.test(null)` 返回 `true`（因为 `String(null)` 是 `"null"`），
+        需要拦截时请写成 `v => v != null && /^[a-z]+$/.test(v)`。
+*   **列默认是 NOT NULL。** 需要允许 `NULL` 时显式声明 `notNull: false`。
+*   **`timestamp`** —— 取 `'insert'`、`'update'` 或 `true`，写入时自动填值。
+*   **`index` / `unique`** 会在 `db.sync()` 时驱动索引与唯一约束的同步。
+
+---
 
 ## 🛠 CLI 模型生成器
 
@@ -572,6 +611,15 @@ NeoPG 3.0 将整个包与全部源码迁移到原生 ESM，并把内置驱动升
 
 *   以 ESM 方式使用 NeoPG 的项目，Node.js 需为 24 及以上。
 *   用 `npx neopg-model` 生成模型时，默认输出仍是 CJS；文件名加 `.mjs` 才会生成 ESM 模型。
+*   若你把旧文档里的 `required: true` 抄进了 schema，请注意代码从未读取过该字段。
+    写入时校验请用 `validate`，列约束请用 `notNull`。
+
+### 3.0.1
+
+*   内置驱动同步上游 postgres.js 4.1.1：事务结束后再通过该作用域发起的查询会被拒绝
+    （`UNSAFE_TRANSACTION`），而不是悄悄跑到池中的其它连接上；simple 协议下没有行描述的语句
+    不再设置 `result.columns`；`toCamel` / `toPascal` 正确处理空串与结尾下划线；错误堆栈处理更稳健。
+*   文档：模型示例改为真实的 ESM 与 CJS 两种写法，并用 `validate` + `notNull` 替换掉了无效的 `required` 字段。
 
 ---
 

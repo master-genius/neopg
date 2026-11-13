@@ -114,6 +114,7 @@ export function Connection(ready, options, events) {
 
   function holds(x) {
     return x.describing
+      || (x.described && socket.serial && !x.nosync && !x.done)
       || (x.gate && x.learn && !x.error)
       || (!!x.error && !x.done)
       || (x.flushing && !x.synced)
@@ -581,6 +582,7 @@ export function Connection(ready, options, events) {
 
   function described(x) {
     x.describing = false
+    x.described = true
     const { built } = x.query.wire
         , name = x.statement.name
         , params = x.params || []
@@ -1029,7 +1031,7 @@ export function Connection(ready, options, events) {
     result.state = connection.backend
     result.statement = item
     item.query && (item.query.source = item)
-    result.columns = result.columns || item.columns
+    item.kind === 'simple' || (result.columns = result.columns || item.columns)
 
     item.final && (item.stream && Object.assign(item.stream, { count, command }), item.final(), item.final = null)
     item.kind !== 'simple' && (item.completed = true)
@@ -1043,7 +1045,8 @@ export function Connection(ready, options, events) {
     if (item.rows) {
       item.finished = true
       item.flushing && sync(item)
-      result.count && (item.last = new Promise(r => r(item.query.cursorFn(result)))).catch(noop)
+      if (result.count || result.length)
+        (item.last = new Promise(r => r(item.query.cursorFn(result)))).catch(noop)
     }
 
     item.nosync && !item.error && part(item)
@@ -1131,6 +1134,11 @@ export function Connection(ready, options, events) {
 
   function settle(x) {
     answered(x)
+    settling(x)
+    x.batch && answered(x)
+  }
+
+  function settling(x) {
     if (x.kind === 'internal')
       return
 

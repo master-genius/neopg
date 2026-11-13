@@ -142,41 +142,43 @@ await db.close()
 
 ## 📝 Defining a Model
 
-Create a model file (e.g., `models/User.js`). Your class should extend the `ModelChain` base class
-(also reachable as `NeoPG.ModelChain`).
+Create a model file (e.g., `models/User.js`). Your class must extend the `ModelChain` base class
+(also reachable as `NeoPG.ModelChain`) and be the file's **default export**.
 
-The example below uses CommonJS; if your project is ESM, swap the first line for
-`import { ModelChain, dataTypes } from 'neopg'` and the last line for
-`export default User` — the schema itself is identical either way.
+The schema definition is identical in both module systems — only the import/export lines differ.
+
+### ESM project (`"type": "module"`, recommended)
 
 ```javascript
-const { ModelChain, dataTypes } = require('neopg')
+// models/User.js
+import { dataTypes, ModelChain } from 'neopg'
 
-class User extends ModelChain {
+export default class User extends ModelChain {
   static schema = {
     tableName: 'users',
     modelName: 'User', // Optional, defaults to tableName
     primaryKey: 'id',
-    
+
     // Auto-sync table structure based on this definition
     column: {
-      id: { 
-        type: dataTypes.ID, // Auto-generates Snowflake-like ID 
+      id: {
+        type: dataTypes.ID, // Auto-generates Snowflake-like ID
       },
-      username: { 
-        type: dataTypes.STRING(100), 
-        required: true 
+      username: {
+        type: dataTypes.STRING(100),
+        validate: v => typeof v === 'string' && v.length >= 3
       },
-      email: { 
-        type: dataTypes.STRING(255), 
-        required: true 
+      email: {
+        type: dataTypes.STRING(255),
+        validate: /^[^@\s]+@[^@\s]+\.[^@\s]+$/
       },
-      age: { 
-        type: dataTypes.INT, 
-        default: 18 
+      age: {
+        type: dataTypes.INT,
+        default: 18
       },
-      meta: { 
-        type: dataTypes.JSONB 
+      meta: {
+        type: dataTypes.JSONB,
+        notNull: false // Columns are NOT NULL by default
       },
       created_at: {
         type: dataTypes.BIGINT,
@@ -193,9 +195,48 @@ class User extends ModelChain {
     unique: ['username']
   }
 }
+```
+
+### CommonJS project (`require`)
+
+```javascript
+// models/User.js
+const { dataTypes, ModelChain } = require('neopg')
+
+class User extends ModelChain {
+  static schema = {
+    tableName: 'users',
+    modelName: 'User',
+    primaryKey: 'id',
+    column: {
+      id: { type: dataTypes.ID },
+      username: { type: dataTypes.STRING(100) }
+      // ... the rest of the schema is identical ...
+    }
+  }
+}
 
 module.exports = User
 ```
+
+### Reference
+
+*   **Default export required.** The model must be the module's default export
+    (`export default User` or `module.exports = User`). A file with only named exports
+    is rejected with `no model export found`.
+*   **Class vs. plain object.** A class extending `ModelChain` is the normal form; a plain
+    object with the same `schema` shape can also be passed to `db.define()`.
+*   **`validate`** accepts a **RegExp**, an **array** of allowed values, or a **function**.
+    It runs on write for every key actually present in the row:
+    *   Explicit `undefined` → `Field 'x' is required.`
+    *   Failing check (incl. `null`) → `Validation failed for field 'x'`.
+    *   A key omitted entirely is **not** validated by `validate` — rely on the NOT NULL
+        constraint for that (see below).
+*   **Columns are NOT NULL by default.** Add `notNull: false` to allow `NULL`.
+*   **`timestamp`** — `'insert'`, `'update'`, or `true` auto-fills the column on write.
+*   **`index` / `unique`** drive index and unique-constraint sync in `db.sync()`.
+
+---
 
 ## 🛠 CLI Model Generator
 
@@ -577,6 +618,19 @@ vendored driver to postgres.js v4.
 *   Your own project must run on Node.js >= 24 if it consumes NeoPG as ESM.
 *   If you generate models with `npx neopg-model`, the default output is still CJS;
     append `.mjs` to get an ESM model.
+*   If you copied the old `required: true` field into your schemas, note that it was never
+    read by the code. Use `validate` for write-time checks and `notNull` for the column
+    constraint instead.
+
+### 3.0.1
+
+*   Synced the bundled driver with upstream postgres.js 4.1.1: transaction scopes now
+    reject queries issued after the transaction has ended (`UNSAFE_TRANSACTION`) instead
+    of silently running them on another pooled connection; `result.columns` is no longer
+    set for simple-protocol statements without a row description; `toCamel` / `toPascal`
+    handle empty strings and trailing underscores; safer error stack handling.
+*   Documentation: the model examples now show real ESM and CommonJS forms, and the
+    ineffective `required` field was replaced with `validate` plus `notNull`.
 
 ---
 

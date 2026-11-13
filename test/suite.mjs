@@ -162,6 +162,41 @@ await t('嵌套事务（savepoint）', async () => {
   assert.deepStrictEqual(v, [1, 2])
 })
 
+await t('事务结束后再用该作用域发查询应被拒绝', async () => {
+  let scope = null
+  await db.transaction(async tx => { scope = tx })
+  await assert.rejects(
+    scope.sql`select 1 as x`,
+    (err) => err.code === 'UNSAFE_TRANSACTION'
+  )
+})
+
+await t('嵌套事务结束后，内层作用域不可再用', async () => {
+  let inner = null
+  await db.transaction(async tx => {
+    await tx.transaction(async tx2 => { inner = tx2 })
+  })
+  await assert.rejects(inner.sql`select 1`, (err) => err.code === 'UNSAFE_TRANSACTION')
+})
+
+await t('无行描述的 simple 查询 columns 保持 null', async () => {
+  await db.sql.unsafe(`drop table if exists ${CFG.schema}.suite_col`)
+  await db.sql.unsafe(`create table ${CFG.schema}.suite_col (id int, v text)`)
+  const ins = await db.sql.unsafe(`insert into ${CFG.schema}.suite_col (id, v) values (1, 'a')`)
+  assert.strictEqual(ins.count, 1)
+  assert.strictEqual(ins.columns, null)
+  await db.sql.unsafe(`drop table if exists ${CFG.schema}.suite_col`)
+})
+
+await t('toCamel/toPascal 边界值安全', () => {
+  const { toCamel, toPascal } = NeoPG.postgres
+  assert.strictEqual(toCamel(''), '')
+  assert.strictEqual(toPascal(''), '')
+  assert.strictEqual(toCamel('user_name'), 'userName')
+  assert.strictEqual(toPascal('user_name'), 'UserName')
+  assert.ok(!String(toCamel('name_')).includes('undefined'))
+})
+
 // ============================================================
 section('3. 模型加载（modtype 自动识别）')
 // ============================================================
